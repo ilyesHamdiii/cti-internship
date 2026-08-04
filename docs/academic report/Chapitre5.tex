@@ -1,0 +1,119 @@
+\chapter{Réalisation de la plateforme}
+
+\section{Réalisation du backend}
+
+Une architecture backend a été développée avec FastAPI. Ce choix a permis de combiner rapidité de développement, validation forte des données via Pydantic et séparation claire entre routes, schémas, services et modèles. Les endpoints sont regroupés par domaine fonctionnel : authentification, CTI, MISP, graphes, IA, propositions, revue, télémétrie, catalogue et opérations.
+
+L'application met en oeuvre une authentification par jetons JWT. Les utilisateurs disposent de rôles locaux, principalement administrateur et analyste. Cette solution reste adaptée au contexte de démonstration, mais elle ne remplace pas une intégration SSO ou un RBAC d'entreprise. Elle permet cependant de matérialiser une frontière importante : les opérations sensibles ne sont pas publiques.
+
+\begin{longtable}{p{4cm}p{10cm}}
+\caption{Principaux domaines API de la solution}
+\label{tab:api-domaines}\\
+\toprule
+\textbf{Domaine} & \textbf{Rôle dans l'application}\\
+\midrule
+Authentification & Connexion, renouvellement des jetons et identification de l'utilisateur courant.\\
+CTI & Consultation des événements normalisés et lancement de workflows.\\
+MISP & Listing, détail, ingestion unitaire, ingestion en lot et planification.\\
+Graphe & Consultation des runs et des timelines de noeuds.\\
+IA & Tableau de bord, sessions, workflow visuel et consommation.\\
+Revue & Consultation des propositions, révisions, validations et actions analyste.\\
+Catalogue & Consultation et import de détections approuvées.\\
+Opérations & Santé système, paramètres et artefacts de déploiement.\\
+\bottomrule
+\end{longtable}
+
+\section{Persistance et migrations}
+
+PostgreSQL a été choisi parce que le domaine nécessite à la fois des relations explicites et des données semi-structurées. Les événements MISP, les réponses IA et les résultats de watchers contiennent naturellement des structures JSON. Le type JSONB permet de conserver ces détails tout en maintenant des liens relationnels entre événements, workflows, propositions et validations.
+
+Les migrations Alembic structurent l'évolution du schéma. La première migration crée le socle applicatif. Les migrations suivantes ajoutent les métadonnées de politique, l'audit ATT\&CK, les contraintes d'idempotence, le moteur de raisonnement IA et les champs de conformité demandés pour le suivi des révisions et de la consommation. Cette progression reflète l'évolution du besoin : partir d'une chaîne CTI-to-detection, puis renforcer progressivement la traçabilité.
+
+\section{Ingestion MISP et consommation}
+
+L'intégration MISP utilise les variables \texttt{CTI\_MISP\_URL}, \texttt{CTI\_MISP\_API\_KEY} et \texttt{CTI\_MISP\_VERIFY\_TLS}. La plateforme distingue plusieurs états : non configuré, inaccessible, échec d'authentification et sain. Cette distinction est importante car un simple état \og configuré \fg{} ne suffit pas à prouver que l'ingestion fonctionne réellement.
+
+L'ingestion peut être déclenchée manuellement pour un événement, exécutée en lot pour tous les nouveaux événements ou planifiée. Chaque événement évalué produit un enregistrement de consommation. Les statuts consommé, dupliqué, ignoré et échoué permettent de diagnostiquer les erreurs sans modifier directement la base de données.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+actor/.style={draw, rounded corners, minimum width=2.5cm, minimum height=0.8cm, align=center, fill=gray!8},
+msg/.style={-Latex, thick}
+]
+\node[actor] (user) {Utilisateur};
+\node[actor, right=1.1cm of user] (front) {Frontend};
+\node[actor, right=1.1cm of front] (api) {Backend};
+\node[actor, right=1.1cm of api] (misp) {MISP};
+\node[actor, right=1.1cm of misp] (db) {PostgreSQL};
+\draw[msg] (user) -- node[above]{clic ingestion} (front);
+\draw[msg] (front) -- node[above]{requête API} (api);
+\draw[msg] (api) -- node[above]{fetch event} (misp);
+\draw[msg] (misp) -- node[below]{événement} (api);
+\draw[msg] (api) -- node[above]{CTI + registre} (db);
+\end{tikzpicture}
+\caption{Séquence simplifiée d'une ingestion manuelle}
+\label{fig:sequence-ingestion}
+\end{figure}
+
+\section{Orchestration asynchrone}
+
+Les traitements d'ingénierie de détection sont exécutés par Celery. Cette décision évite que l'utilisateur attende la fin complète d'une analyse dans une requête HTTP. Elle permet aussi de représenter plus fidèlement un fonctionnement SOC, où l'arrivée de nouveaux renseignements déclenche des jobs en arrière-plan. Redis joue le rôle de broker et de support d'orchestration.
+
+Le scheduler gère le polling MISP selon la configuration choisie : désactivé, intervalle, horaire, quotidien, hebdomadaire ou exécution unique. L'interface permet de modifier cette configuration et le backend calcule les échéances de polling.
+
+\section{Réalisation du moteur de raisonnement}
+
+Le moteur de raisonnement combine des services déterministes et des appels IA. Le mode fixture rend les démonstrations reproductibles, tandis qu'une intégration DeepSeek est prévue pour un fournisseur réel lorsque les credentials sont configurés. Les interactions IA sont persistées avec le provider, le modèle, la version de prompt, les entrées, les sorties structurées, les latences et les erreurs éventuelles.
+
+La boucle de réparation fonctionne dans une même session de raisonnement. Lorsqu'un candidat échoue sur un watcher ou une validation réparable, une nouvelle révision est créée avec un lien parent. La mémoire structurée transmet les erreurs précédentes, les mappings acceptés et les stratégies à éviter. Cette approche répond à un besoin concret : ne pas produire plusieurs réponses indépendantes qui répètent les mêmes erreurs.
+
+\section{Génération et validation Sigma}
+
+La génération Sigma transforme le comportement extrait en règle structurée. La validation ne se limite pas au format YAML. Elle vérifie la conformité Sigma, la compilation pySigma vers Splunk, la qualité, le mapping ATT\&CK, la télémétrie et le risque de doublon. Une règle invalide ne peut donc pas avancer comme si elle était prête pour la revue.
+
+Le pipeline de validation constitue l'un des points clés de la solution. Il transforme une sortie IA en objet vérifiable. En cas d'échec réparable, il déclenche la boucle de correction. En cas d'échec bloquant, il route vers une issue terminale adaptée.
+
+\section{Interface SOC}
+
+L'interface a été conçue comme un espace de travail pour analyste. Elle ne se présente pas comme une page marketing, mais comme un ensemble de vues opérationnelles : tableau de bord, file des menaces, sessions IA, workflow IA, runs, propositions, revue, catalogue, matrice ATT\&CK, télémétrie, santé système et paramètres.
+
+\screenfig{dashboard}{Emplacement prévu pour la capture du tableau de bord}
+\screenfig{misp-inbox}{Emplacement prévu pour la capture de la boîte MISP}
+\screenfig{cti-events}{Emplacement prévu pour la capture des événements CTI}
+\screenfig{ai-dashboard}{Emplacement prévu pour la capture du tableau de bord IA}
+\screenfig{ai-workflow}{Emplacement prévu pour la capture du workflow IA visuel}
+\screenfig{threat-queue}{Emplacement prévu pour la capture de la file des menaces}
+\screenfig{review-queue}{Emplacement prévu pour la capture de la file de revue}
+\screenfig{detection-catalog}{Emplacement prévu pour la capture du catalogue de détections}
+\screenfig{coverage-matrix}{Emplacement prévu pour la capture de la matrice de couverture ATT\&CK}
+\screenfig{system-health}{Emplacement prévu pour la capture de la santé système}
+
+\section{Cycle de revue et publication}
+
+La revue humaine est obligatoire. Cette décision est volontaire : dans un système de détection, approuver une règle revient à accepter un impact opérationnel. L'analyste peut approuver, demander des changements ou rejeter. Lorsqu'une proposition est approuvée, la solution génère un artefact local et publie la détection dans le catalogue interne. Le déploiement vers un SIEM réel reste hors périmètre.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+step/.style={draw, rounded corners, minimum width=2.8cm, minimum height=0.8cm, align=center, fill=orange!8},
+gate/.style={draw, diamond, aspect=2, align=center, fill=yellow!12},
+arrow/.style={-Latex, thick}
+]
+\node[step] (proposal) {Proposition};
+\node[step, right=1cm of proposal] (workspace) {Espace\\de revue};
+\node[gate, right=1cm of workspace] (decision) {Décision\\analyste};
+\node[step, above right=0.7cm and 1cm of decision] (approve) {Approuver};
+\node[step, right=1cm of decision] (changes) {Demander\\changements};
+\node[step, below right=0.7cm and 1cm of decision] (reject) {Rejeter};
+\node[step, right=1cm of approve] (catalog) {Catalogue};
+\draw[arrow] (proposal) -- (workspace);
+\draw[arrow] (workspace) -- (decision);
+\draw[arrow] (decision) -- (approve);
+\draw[arrow] (decision) -- (changes);
+\draw[arrow] (decision) -- (reject);
+\draw[arrow] (approve) -- (catalog);
+\end{tikzpicture}
+\caption{Workflow de revue humaine et publication locale}
+\label{fig:review-workflow}
+\end{figure}

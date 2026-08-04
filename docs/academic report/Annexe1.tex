@@ -1,0 +1,16 @@
+\chapter{Annexe A : Organisation technique}
+
+L'organisation technique de la solution repose sur les ensembles suivants :
+
+\begin{itemize}[leftmargin=1.2cm]
+    \item \texttt{backend/} : application FastAPI, modèles, services, routes, workers Celery et migrations Alembic ;
+    \item \texttt{frontend/} : application Next.js, pages SOC, composants partagés et client API ;
+    \item \texttt{docs/} : documentation technique, architecture, intégration MISP, API, tests, diagrammes et audits ;
+    \item \texttt{scripts/backend/} : tests et scénarios de vérification backend ;
+    \item \texttt{docker/} : configuration Nginx ;
+    \item \texttt{artifacts/screenshots/} : captures d'écran de l'interface.
+\end{itemize}
+
+\section*{Services Docker}
+
+Les services principaux sont \texttt{backend}, \texttt{frontend}, \texttt{nginx}, \texttt{postgres}, \texttt{redis}, \texttt{worker} et \texttt{scheduler}. Le profil \texttt{misp} ajoute MISP et ses dépendances. L'interface de la plateforme est accessible localement sur \texttt{http://localhost:8080}. L'interface MISP locale est documentée sur \texttt{https://localhost:8443}.

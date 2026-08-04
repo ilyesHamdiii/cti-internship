@@ -1,0 +1,27 @@
+\chapter{Annexe B : Exemples de configuration}
+
+\section*{Variables MISP}
+
+\begin{lstlisting}[style=code]
+CTI_MISP_URL=https://misp
+CTI_MISP_API_KEY=cle_api_misp_generee_depuis_interface
+CTI_MISP_VERIFY_TLS=false
+\end{lstlisting}
+
+La clé API doit être créée depuis l'interface MISP avec un utilisateur autorisé à utiliser l'API. Les tests d'ingestion doivent passer par l'API MISP réelle et non par une insertion directe dans PostgreSQL.
+
+\section*{Commande de démarrage local}
+
+\begin{lstlisting}[style=code]
+docker compose --profile misp up -d --build
+\end{lstlisting}
+
+\section*{Exécution des tests backend}
+
+\begin{lstlisting}[style=code]
+make backend-test
+make backend-lint
+make compose-config
+\end{lstlisting}
+
+Ces commandes nécessitent un environnement Docker fonctionnel pour les vérifications complètes.

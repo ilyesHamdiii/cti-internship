@@ -1,0 +1,63 @@
+.env
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.pyc
+
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+backend/.venv/
+backend/.pytest_cache/
+
+deployment_artifacts/
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+secrets/
+credentials/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+.venv/
+venv/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+dist/
+playwright-report/
+test-results/
+
+# IDE and operating system
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Runtime data
+artifacts/
+logs/
+*.log
+
+# Databases and volumes
+postgres-data/
+redis-data/
+misp-data/
+
+# Local configuration
+docker-compose.override.yml

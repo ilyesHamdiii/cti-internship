@@ -1,0 +1,55 @@
+name: Docker Validation
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compose-validation:
+    name: Build, boot, health check, and teardown
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create CI environment
+        run: bash scripts/ci/write-ci-env.sh
+
+      - name: Docker Compose config
+        run: docker compose config
+
+      - name: Docker Compose build
+        run: docker compose build
+
+      - name: Docker Compose up
+        run: docker compose up -d
+
+      - name: Wait for healthy stack
+        run: bash scripts/ci/wait-for-stack.sh backend postgres redis nginx frontend worker scheduler
+
+      - name: Backend health endpoint
+        run: curl -fsS http://localhost:8080/api/v1/health
+
+      - name: Frontend via nginx
+        run: curl -fsS http://localhost:8080 >/tmp/frontend.html
+
+      - name: Collect logs on failure
+        if: failure()
+        run: bash scripts/ci/collect-compose-logs.sh
+
+      - name: Upload Docker logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-failure-logs
+          path: artifacts/docker
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v --remove-orphans

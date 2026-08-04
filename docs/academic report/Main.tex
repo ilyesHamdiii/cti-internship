@@ -1,0 +1,94 @@
+\documentclass[12pt,a4paper]{report}
+
+\usepackage[top=2.5cm,bottom=2.5cm,left=2.5cm,right=2.5cm]{geometry}
+\usepackage[french]{babel}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{textcomp}
+\usepackage{lmodern}
+\usepackage{setspace}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{colortbl}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{hyperref}
+\usepackage{fancyhdr}
+\usepackage{float}
+\usepackage{tikz}
+\usepackage{listings}
+\usepackage{enumitem}
+\usepackage{caption}
+
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,fit}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=black,
+    citecolor=black,
+    urlcolor=blue
+}
+
+\onehalfspacing
+\setlength{\parskip}{0.5em}
+\setlength{\parindent}{0pt}
+\sloppy
+
+\pagestyle{fancy}
+\fancyhead[L]{}
+\fancyhead[C]{}
+\fancyhead[R]{\nouppercase\rightmark}
+\fancyfoot[L]{}
+\fancyfoot[C]{}
+\fancyfoot[R]{\textbf{\thepage}}
+
+\lstdefinestyle{code}{
+    basicstyle=\ttfamily\small,
+    breaklines=true,
+    frame=single,
+    columns=fullflexible
+}
+
+\newcommand{\screenfig}[2]{
+\begin{figure}[H]
+\centering
+\fbox{\begin{minipage}[c][5.2cm][c]{0.86\textwidth}
+\centering
+\textit{Emplacement réservé à la capture d'écran : #1}
+\end{minipage}}
+\caption{#2}
+\label{fig:#1}
+\end{figure}
+}
+
+\begin{document}
+
+\include{garde_fin}
+\pagenumbering{roman}
+\include{Remerciements}
+\include{Resume}
+\tableofcontents
+\listoffigures
+\listoftables
+\newpage
+
+\pagenumbering{arabic}
+\include{Introduction}
+\include{Chapitre1}
+\include{Chapitre2}
+\include{Chapitre3}
+\include{Chapitre4}
+\include{Chapitre5}
+\include{Chapitre6}
+\include{Conclusion}
+
+\bibliographystyle{alpha}
+\bibliography{Biblio}
+\addcontentsline{toc}{chapter}{Bibliographie}
+
+\appendix
+\include{Annexe1}
+\include{Annexe2}
+
+\end{document}

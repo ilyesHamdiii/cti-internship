@@ -1,0 +1,178 @@
+name: Security Pipeline
+
+on:
+  workflow_run:
+    workflows: ["Pull Request Quality Checks"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  static-security:
+    name: Static security and dependency scans
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    env:
+      SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install scan tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install bandit[toml] pip-audit detect-secrets checkov semgrep
+          npm install -g snyk
+
+      - name: Prepare reports
+        run: |
+          mkdir -p artifacts/security
+          python - <<'PY' > artifacts/security/backend-requirements.txt
+          import tomllib
+          data = tomllib.load(open("backend/pyproject.toml", "rb"))
+          for dep in data["project"]["dependencies"]:
+              print(dep)
+          PY
+
+      - name: Python dependency audit
+        run: pip-audit --requirement artifacts/security/backend-requirements.txt --format json --output artifacts/security/pip-audit.json
+
+      - name: Python SAST with Bandit
+        run: bandit -r backend/app -f json -o artifacts/security/bandit.json
+
+      - name: Secret scanning with detect-secrets
+        run: detect-secrets scan --all-files --force-use-all-plugins > artifacts/security/detect-secrets.json
+
+      - name: Semgrep SAST
+        run: semgrep scan --config p/ci --json --output artifacts/security/semgrep.json
+
+      - name: Infrastructure and workflow scanning with Checkov
+        run: checkov -d . --framework dockerfile,secrets,github_actions,yaml --output json --output-file-path artifacts/security/checkov.json
+
+      - name: Snyk dependency scanning
+        if: env.SNYK_TOKEN != ''
+        run: |
+          snyk test --all-projects --json-file-output=artifacts/security/snyk-dependencies.json
+
+      - name: Snyk code scanning
+        if: env.SNYK_TOKEN != ''
+        run: snyk code test --json-file-output=artifacts/security/snyk-code.json
+
+      - name: Upload static security reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: static-security-reports
+          path: artifacts/security
+
+  codeql:
+    name: CodeQL
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [python, javascript-typescript]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v3
+
+  container-security:
+    name: Docker image scanning
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    env:
+      SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build backend image
+        run: |
+          mkdir -p artifacts/security
+          docker build -t cti-backend:ci backend
+
+      - name: Build frontend image
+        run: docker build -t cti-frontend:ci frontend
+
+      - name: Trivy backend scan
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: cti-backend:ci
+          format: sarif
+          output: artifacts/security/trivy-backend.sarif
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+
+      - name: Trivy frontend scan
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: cti-frontend:ci
+          format: sarif
+          output: artifacts/security/trivy-frontend.sarif
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+
+      - name: Snyk container scan
+        if: env.SNYK_TOKEN != ''
+        run: |
+          npm install -g snyk
+          mkdir -p artifacts/security
+          snyk container test cti-backend:ci --json-file-output=artifacts/security/snyk-container-backend.json
+          snyk container test cti-frontend:ci --json-file-output=artifacts/security/snyk-container-frontend.json
+
+      - name: Upload container reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: container-security-reports
+          path: artifacts/security
+
+  sonarqube:
+    name: SonarQube quality gate
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: SonarQube scan
+        if: env.SONAR_TOKEN != ''
+        uses: SonarSource/sonarqube-scan-action@v4
+
+      - name: SonarQube quality gate
+        if: env.SONAR_TOKEN != ''
+        uses: SonarSource/sonarqube-quality-gate-action@v1
+        timeout-minutes: 5

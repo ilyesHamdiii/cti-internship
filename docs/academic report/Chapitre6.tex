@@ -1,0 +1,75 @@
+\chapter{Validation, résultats et limites}
+
+\section{Méthode de validation}
+
+La validation a été organisée autour des scénarios attendus par la plateforme : ingestion MISP, exécution de workflow, génération de proposition, validation Sigma, réparation, détection de doublons, gap de visibilité et revue humaine. Cette méthode est plus pertinente qu'une simple vérification d'interface, car elle confirme que les états sont persistés et que les décisions du workflow ont un effet réel.
+
+Les tests backend couvrent les services déterministes, les contrats IA, le fournisseur DeepSeek, les tâches Celery, la connectivité MISP et le moteur de raisonnement. Ils ne couvrent pas encore l'ensemble de l'interface frontend, ce qui constitue une limite importante.
+
+\begin{longtable}{p{5cm}p{9cm}}
+\caption{Couverture de tests disponible}
+\label{tab:tests}\\
+\toprule
+\textbf{Fichier} & \textbf{Objectif}\\
+\midrule
+\texttt{test\_deterministic\_services.py} & Vérifier couverture, télémétrie, politique, Sigma, doublons et publication locale.\\
+\texttt{test\_ai\_contracts.py} & Stabiliser les schémas, prompts et contrats de l'abstraction IA.\\
+\texttt{test\_deepseek\_provider.py} & Contrôler l'intégration du fournisseur DeepSeek lorsque configuré.\\
+\texttt{test\_celery\_contracts.py} & Vérifier les contrats des traitements asynchrones.\\
+\texttt{test\_misp\_connectivity.py} & Tester la configuration et les états de connectivité MISP.\\
+\texttt{test\_reasoning\_engine.py} & Couvrir les révisions, watchers, scores, recommandations et consommation.\\
+\texttt{test\_real\_ai\_automation\_core.py} & Valider des scénarios coeur de l'automatisation IA.\\
+\bottomrule
+\end{longtable}
+
+\section{Scénarios fonctionnels vérifiés}
+
+Les scénarios vérifiés montrent que la chaîne principale est cohérente. Une intelligence MISP peut être consommée via l'API, transformée en événement CTI, associée à un workflow, puis traitée par le graphe. Le système conserve les runs, les noeuds, les sessions IA, les révisions et les résultats de validation.
+
+La réparation dans une même session a également été prévue et testée dans le moteur de raisonnement. Cette propriété est importante : une révision corrective ne doit pas être considérée comme une nouvelle tentative indépendante, mais comme la suite d'un raisonnement qui a mémorisé les erreurs précédentes.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+step/.style={draw, rounded corners, minimum width=2.7cm, minimum height=0.8cm, align=center, fill=blue!6},
+bad/.style={draw, rounded corners, minimum width=2.7cm, minimum height=0.8cm, align=center, fill=red!8},
+good/.style={draw, rounded corners, minimum width=2.7cm, minimum height=0.8cm, align=center, fill=green!8},
+arrow/.style={-Latex, thick}
+]
+\node[step] (rev1) {Révision 1};
+\node[bad, right=0.9cm of rev1] (fail) {Watcher ou\\validation échoue};
+\node[step, right=0.9cm of fail] (memory) {Mémoire\\structurée};
+\node[step, right=0.9cm of memory] (repair) {Réparation};
+\node[good, right=0.9cm of repair] (rev2) {Révision 2};
+\draw[arrow] (rev1) -- (fail);
+\draw[arrow] (fail) -- (memory);
+\draw[arrow] (memory) -- (repair);
+\draw[arrow] (repair) -- (rev2);
+\end{tikzpicture}
+\caption{Principe de la réparation en session identique}
+\label{fig:repair-session}
+\end{figure}
+
+\section{Résultats obtenus}
+
+La réalisation obtenue démontre une chaîne CTI-to-detection complète à l'échelle locale. L'application sait récupérer des événements MISP, éviter des doublons, créer des workflows, piloter une analyse, générer des propositions, appliquer des watchers, valider Sigma, calculer des scores, conserver les révisions et présenter les résultats dans une interface analyste.
+
+Le résultat le plus significatif n'est pas uniquement la génération d'une règle Sigma. Il réside dans l'encadrement de cette génération. L'IA intervient dans un environnement contraint où chaque sortie est vérifiée, historisée et soumise à un analyste. Ce choix rend la solution plus crédible qu'une génération directe de détection par prompt unique.
+
+\section{Difficultés rencontrées}
+
+L'intégration MISP a représenté une difficulté importante. MISP fonctionne avec sa propre configuration, son interface web, ses dépendances et ses clés API. Un problème d'authentification peut faire échouer l'ingestion même si le service web est accessible. Il a donc fallu distinguer la configuration, la connectivité, l'authentification et le polling.
+
+La gestion des doublons a également nécessité une attention particulière. Les tests d'ingestion peuvent produire des événements redondants, et une plateforme d'ingénierie de détection ne doit pas créer plusieurs propositions équivalentes pour le même comportement. Des mécanismes d'idempotence, de fingerprinting et de statuts de consommation ont été introduits pour maîtriser ce problème.
+
+La troisième difficulté concerne l'IA. Il est relativement simple de demander à un modèle de produire une règle ; il est beaucoup plus difficile de prouver pourquoi cette règle est acceptable ou pourquoi elle doit être corrigée. Les watchers, la mémoire de session et les scores séparés ont été conçus pour répondre à cette difficulté.
+
+\section{Limites identifiées}
+
+La solution n'est pas prête pour un déploiement de production. L'authentification reste locale et ne couvre pas les exigences d'une entreprise mature. L'observabilité ne comprend pas de stack complète de métriques, d'alerting ou de dashboards techniques. Les tests frontend automatisés sont absents. Le mode IA réel dépend d'une clé externe et n'a pas vocation à être garanti dans tous les environnements de démonstration. Enfin, la publication se limite à des artefacts locaux et au catalogue interne ; aucun push vers un SIEM réel n'est implémenté.
+
+Ces limites n'annulent pas la valeur du travail réalisé. Elles clarifient le périmètre : la plateforme démontre une approche d'ingénierie contrôlée et traçable, mais elle nécessite un durcissement avant tout usage opérationnel sensible.
+
+\section{Bilan}
+
+Le bilan technique est positif pour un stage d'un mois. Le projet combine plusieurs composantes qui sont rarement réunies dans un simple exercice académique : CTI, MISP, ATT\&CK, Sigma, pySigma, orchestration asynchrone, interface SOC, validation déterministe et boucle IA gouvernée. La principale contribution consiste à montrer comment l'IA peut être intégrée comme assistant, tout en maintenant des contrôles explicites et une autorité humaine finale.

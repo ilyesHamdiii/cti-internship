@@ -1,0 +1,43 @@
+\chapter{État de l'art et fondements scientifiques}
+
+\section{Cyber Threat Intelligence et exploitation opérationnelle}
+
+La Cyber Threat Intelligence regroupe les informations permettant de comprendre les acteurs malveillants, leurs infrastructures, leurs outils, leurs techniques et leurs objectifs. Dans un contexte opérationnel, elle ne se limite pas à la collecte d'indicateurs. Sa valeur dépend de la capacité à la relier à des décisions concrètes : prioriser une investigation, enrichir une alerte, orienter une chasse aux menaces ou produire une détection.
+
+MISP occupe une place importante dans cet écosystème. La plateforme permet de structurer des événements, des attributs, des objets et des tags afin de faciliter le partage de renseignements \cite{misp}. Le choix de MISP dans ce travail se justifie par son usage courant dans les communautés de cybersécurité et par la disponibilité d'une API permettant de construire un flux d'ingestion réaliste. Cette approche évite de travailler sur des données artificiellement insérées en base et oblige à traiter les problèmes habituels d'une intégration : authentification, format des événements, redondance et disponibilité du service.
+
+\section{SOC, SIEM et ingénierie de détection}
+
+Un Security Operations Center a pour objectif de surveiller les systèmes d'information, détecter les comportements suspects, qualifier les alertes et coordonner la réponse. Les SIEM centralisent les journaux et exécutent des règles de corrélation ou de détection. Cependant, la qualité d'un SOC ne dépend pas uniquement de l'outil SIEM. Elle dépend fortement de l'ingénierie de détection : compréhension de la menace, choix des sources de logs, écriture de règles pertinentes, réduction du bruit, validation et maintenance.
+
+L'ingénierie de détection est donc une discipline de traduction. Elle transforme une connaissance sur l'adversaire en logique observable. Cette traduction n'est pas automatique. Un indicateur réseau peut être bloqué directement, mais un comportement comme l'exécution de PowerShell encodé ou l'accès à LSASS nécessite de comprendre les traces disponibles, les conditions de déclenchement et les risques de faux positifs. C'est précisément cette difficulté que le projet cherche à adresser.
+
+\section{Threat Hunting et approche comportementale}
+
+Le Threat Hunting complète la détection classique en formulant des hypothèses sur les comportements adverses et en les recherchant activement dans la télémétrie. Cette démarche favorise une approche comportementale plutôt qu'une dépendance excessive aux indicateurs statiques. Dans le projet, cette idée apparaît dans la séparation entre les observables extraits de MISP et les comportements exploités par le workflow.
+
+L'utilisation du référentiel MITRE ATT\&CK renforce cette orientation. ATT\&CK fournit une base de connaissances décrivant tactiques et techniques adverses \cite{mitreattack}. Il permet de relier une proposition de détection à une technique connue, d'organiser la couverture et de justifier les décisions prises pendant l'analyse.
+
+\section{Sigma et validation indépendante du SIEM}
+
+Sigma propose un format générique de règles de détection indépendant d'un SIEM particulier \cite{sigmahq}. Ce choix est pertinent pour un projet académique, car il permet de produire un contenu lisible, structuré et portable. Néanmoins, une règle Sigma générée par l'IA ne peut pas être considérée correcte sans validation. Le format doit être conforme, les champs doivent être cohérents et la règle doit pouvoir être compilée vers un backend cible.
+
+pySigma joue ce rôle de contrôle \cite{pysigma}. Dans la solution réalisée, il permet de vérifier la syntaxe Sigma et de compiler la règle vers une sortie Splunk. Ce mécanisme introduit une validation déterministe dans un processus où l'IA peut proposer un contenu imparfait.
+
+\section{IA humaine dans la boucle}
+
+L'intelligence artificielle peut accélérer certaines tâches de cybersécurité, mais elle soulève des questions de gouvernance. Dans un processus de détection, une réponse plausible mais non supportée par des éléments factuels peut être dangereuse. L'approche human-in-the-loop consiste à maintenir l'humain dans la décision, en particulier lorsque le résultat a un impact opérationnel.
+
+Le projet applique cette idée en imposant une revue analyste avant publication. L'IA peut extraire, proposer et réparer, mais elle ne peut pas approuver seule une détection. Cette séparation est cohérente avec les principes d'IA explicable et gouvernée : le système doit produire des traces, expliquer les facteurs de score et permettre à un analyste de comprendre pourquoi une proposition est recommandée, bloquée ou rejetée.
+
+\section{IA explicable, confiance et gouvernance}
+
+La littérature sur l'IA explicable insiste sur la nécessité de rendre les décisions compréhensibles par les utilisateurs humains \cite{arrieta2020xai}. Dans ce projet, cette exigence se traduit par des watchers, une mémoire structurée, des scores séparés et des résultats persistés. La confiance associée au candidat n'est pas suffisante ; elle doit être complétée par un score de trust déterministe fondé sur les validations techniques.
+
+Cette séparation répond à un risque classique : une forte confiance déclarée par l'IA pourrait masquer une règle invalide ou non supportée par l'évidence. En distinguant confiance et trust, la solution empêche une sortie IA persuasive de contourner la validation Sigma, l'analyse de télémétrie, la détection de doublons ou les règles de sécurité.
+
+\section{Cadres de référence complémentaires}
+
+Le NIST Cybersecurity Framework organise les activités de cybersécurité autour de fonctions telles que Identify, Protect, Detect, Respond et Recover \cite{nistcsf}. Le projet se situe principalement dans la fonction Detect, avec des liens vers Identify à travers la connaissance des actifs de télémétrie et vers Respond à travers la préparation de contenus exploitables par les analystes.
+
+MITRE D3FEND apporte une perspective défensive en décrivant des contre-mesures et techniques de défense \cite{d3fend}. Même si le projet n'implémente pas directement D3FEND, ce référentiel confirme l'intérêt de relier la connaissance offensive à des mécanismes défensifs structurés. Cette logique guide la conception de la matrice de couverture et du cycle de vie des détections.

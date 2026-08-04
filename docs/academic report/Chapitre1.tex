@@ -1,0 +1,46 @@
+\chapter{Cadre du stage et contexte professionnel}
+
+\section{Présentation de Forvis Mazars Group}
+
+Forvis Mazars Group est un acteur international du conseil, de l'audit, de la fiscalité et des services aux entreprises. L'organisation s'inscrit dans l'héritage de Mazars, dont l'origine remonte à 1945 à Rouen, et appartient aujourd'hui au réseau mondial Forvis Mazars. Cette évolution traduit une volonté de combiner une présence internationale, une expertise métier reconnue et une approche de proximité adaptée aux besoins des clients \cite{forvisabout,forvisbrand}.
+
+Le groupe intervient auprès d'organisations de tailles et de secteurs variés. Ses activités couvrent notamment l'audit et l'assurance, la fiscalité, le conseil financier, le conseil en organisation, la transformation digitale et les sujets liés aux risques. Cette diversité donne au groupe une position particulière : il accompagne les entreprises non seulement dans leurs obligations réglementaires, mais également dans l'amélioration de leurs processus, la maîtrise de leurs systèmes d'information et la préparation aux risques émergents.
+
+La cybersécurité s'inscrit naturellement dans ce périmètre. Les entreprises dépendent de plus en plus de systèmes numériques interconnectés ; elles doivent donc anticiper les risques, vérifier leurs contrôles, améliorer leur résilience et structurer leurs capacités de détection. Les offres de conseil en cybersécurité de Forvis Mazars portent notamment sur la gouvernance, l'évaluation de maturité, la conformité, la gestion des risques, la préparation aux incidents et l'amélioration des dispositifs de sécurité \cite{forviscyber}. Le sujet de ce stage est donc cohérent avec les enjeux actuels du groupe : aider les organisations à mieux transformer l'information sur les menaces en actions de sécurité vérifiables.
+
+\begin{figure}[H]
+\centering
+\IfFileExists{figures/forvis_mazars_logo.png}{
+\includegraphics[width=0.38\textwidth]{figures/forvis_mazars_logo.png}
+}{\fbox{\Large Logo officiel Forvis Mazars}}
+\caption{Logo officiel de Forvis Mazars utilisé pour identifier l'entreprise d'accueil}
+\label{fig:logo-forvis}
+\end{figure}
+
+\section{Contexte du stage}
+
+Le stage s'est déroulé sur une durée d'un mois. Cette durée limitée imposait de définir un périmètre réaliste : concevoir une solution démontrable, suffisamment complète pour couvrir une chaîne technique cohérente, mais sans prétendre atteindre le niveau de durcissement attendu d'une plateforme de production. Le travail réalisé doit donc être compris comme un prototype académique orienté ingénierie, permettant de valider des choix d'architecture et d'observer les difficultés concrètes d'une automatisation de détection.
+
+Le thème choisi relie trois domaines : la Cyber Threat Intelligence, l'ingénierie de détection et l'intelligence artificielle. La CTI fournit des événements et des indicateurs relatifs aux menaces. L'ingénierie de détection transforme ces informations en règles exploitables par un SOC. L'intelligence artificielle peut assister certaines tâches, comme l'extraction de comportements ou la rédaction initiale d'une règle, mais elle introduit également des risques : hallucinations, manque de justification, incohérences techniques ou confiance excessive.
+
+\section{Sujet et problématique}
+
+Le sujet du stage est la conception et le développement d'une plateforme intelligente d'assistance à l'ingénierie de détection basée sur la CTI et l'intelligence artificielle. La plateforme reçoit des événements MISP, les transforme en événements internes, extrait des comportements suspects, les relie au référentiel MITRE ATT\&CK, vérifie la couverture existante, analyse la disponibilité de la télémétrie, génère des propositions Sigma et soumet ces propositions à une revue humaine.
+
+La problématique peut être formulée ainsi :
+
+\begin{quote}
+Comment assister l'ingénieur de détection dans la transformation de renseignements CTI en règles Sigma exploitables, tout en conservant une validation déterministe, une traçabilité complète et une décision finale humaine ?
+\end{quote}
+
+Cette formulation met l'accent sur un point essentiel : l'objectif n'est pas de donner à l'IA un rôle autonome de décision, mais de l'intégrer dans un processus contrôlé. Dans un contexte SOC, une règle de détection erronée peut produire du bruit, manquer une attaque réelle ou donner une fausse impression de couverture. La solution devait donc être conçue autour de garde-fous techniques.
+
+\section{Objectifs poursuivis}
+
+Les objectifs du stage se répartissent en trois niveaux. Le premier niveau concerne l'ingestion et la structuration de la CTI. Il s'agit d'utiliser MISP comme source réelle, de récupérer les événements via son API et de les normaliser dans une base relationnelle. Le deuxième niveau concerne l'orchestration de l'analyse : extraction de comportements, mapping ATT\&CK, vérification de couverture, contrôle de télémétrie et décision de politique. Le troisième niveau concerne la production contrôlée d'une règle : génération Sigma, validation pySigma, détection de doublons, réparation éventuelle, scoring et revue analyste.
+
+Ces objectifs ont été choisis pour représenter une chaîne d'ingénierie de détection réaliste. Une règle ne doit pas être produite uniquement parce qu'un indicateur existe. Elle doit correspondre à un comportement observable, être rattachée à une technique compréhensible, reposer sur une télémétrie disponible et ne pas dupliquer une détection déjà présente.
+
+\section{Organisation du rapport}
+
+Le chapitre suivant présente les fondements techniques nécessaires à la compréhension du projet. Le troisième chapitre formalise les besoins fonctionnels et non fonctionnels. Les chapitres quatre et cinq décrivent respectivement la conception et la réalisation. Le sixième chapitre présente la validation, les résultats obtenus et les limites. La conclusion revient enfin sur les apprentissages et les perspectives.

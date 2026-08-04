@@ -1,0 +1,97 @@
+\chapter{Analyse des besoins et cahier des charges}
+
+\section{Expression du besoin}
+
+Le besoin initial peut être résumé comme la construction d'une chaîne permettant de passer d'un événement CTI à une proposition de détection contrôlée. Ce besoin répond à une réalité opérationnelle : les analystes disposent souvent d'informations sur les menaces, mais la transformation de ces informations en règles utiles demande du temps, une connaissance des techniques adverses et une bonne compréhension de la télémétrie disponible.
+
+La solution devait donc assister l'analyste sans supprimer son rôle. Elle devait accélérer les étapes répétitives, rendre visibles les décisions prises par le workflow et empêcher qu'une règle non validée soit considérée comme prête à l'emploi. Cette orientation a guidé l'ensemble du cahier des charges.
+
+\section{Besoins fonctionnels}
+
+Les besoins fonctionnels couvrent l'ensemble du cycle de vie de la détection. L'application devait permettre à un utilisateur authentifié de consulter les événements MISP, de lancer une ingestion manuelle, de déclencher un traitement en masse ou de configurer une ingestion planifiée. Après normalisation, chaque événement devait être associé à un workflow de détection.
+
+Le workflow devait extraire un comportement, proposer un mapping ATT\&CK, vérifier la couverture existante, analyser la télémétrie disponible et décider s'il fallait générer une nouvelle règle. Lorsqu'une règle était nécessaire, l'application devait produire une proposition Sigma, la valider, calculer des scores, détecter les doublons et, si possible, réparer les erreurs. La dernière étape devait rester une revue analyste, avec possibilité d'approuver, de demander des changements ou de rejeter.
+
+\begin{longtable}{p{4cm}p{10cm}}
+\caption{Synthèse des besoins fonctionnels}
+\label{tab:besoins-fonctionnels}\\
+\toprule
+\textbf{Domaine} & \textbf{Besoin couvert}\\
+\midrule
+Accès & Authentification locale, jetons JWT, rôles administrateur et analyste.\\
+CTI & Consultation, normalisation et ingestion d'événements MISP.\\
+Workflow & Exécution asynchrone et traçable d'un graphe de détection.\\
+IA & Extraction de comportements, génération de règles, réparation bornée.\\
+Contrôles & Watchers, validation Sigma, pySigma, doublons, télémétrie et politique.\\
+Revue & File de propositions, historique des révisions et décision humaine.\\
+Suivi & Santé système, consommation MISP, sessions IA et timeline des graphes.\\
+\bottomrule
+\end{longtable}
+
+\section{Besoins non fonctionnels}
+
+La traçabilité constitue le besoin non fonctionnel le plus important. Une proposition de détection ne devait pas être un simple résultat final. Il fallait pouvoir retrouver l'événement source, le comportement extrait, les mappings ATT\&CK, les validations, les erreurs, les réparations, les scores et la décision finale. Cette exigence explique la richesse du modèle de données et la persistance des noeuds de graphe.
+
+La reproductibilité était également nécessaire. Le projet étant destiné à une démonstration académique, l'environnement devait pouvoir être relancé localement. Docker Compose a donc été retenu pour assembler les services principaux. Les traitements longs ont été confiés à Celery afin de ne pas bloquer l'interface et de mieux représenter un comportement de plateforme SOC.
+
+\section{Contraintes de sécurité}
+
+La cybersécurité impose de ne pas traiter les sorties IA comme des vérités. Le cahier des charges a donc imposé plusieurs garde-fous : validation Pydantic des entrées API, authentification des routes sensibles, configuration des secrets par variables d'environnement, vérification des règles Sigma, détection de doublons et approbation humaine avant publication. Ces contraintes ne transforment pas l'application en solution prête pour une production d'entreprise, mais elles donnent une base saine pour un démonstrateur.
+
+\section{Cas d'utilisation}
+
+La figure \ref{fig:usecases} présente les principaux acteurs et interactions. L'analyste SOC utilise surtout la file des menaces, la revue et le catalogue. L'administrateur intervient davantage sur la configuration, la santé système et l'ingestion planifiée.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+actor/.style={draw, rounded corners, minimum width=2.7cm, minimum height=0.8cm, fill=gray!10},
+usecase/.style={draw, ellipse, minimum width=3.9cm, minimum height=1cm, fill=blue!6},
+arrow/.style={-Latex}
+]
+\node[actor] (analyst) {Analyste SOC};
+\node[actor, below=1.2cm of analyst] (admin) {Administrateur};
+\node[usecase, right=3cm of analyst] (ingest) {Ingérer la CTI};
+\node[usecase, below=0.8cm of ingest] (review) {Analyser une proposition};
+\node[usecase, below=0.8cm of review] (catalog) {Publier au catalogue};
+\node[usecase, right=3.2cm of ingest] (health) {Suivre l'état système};
+\node[usecase, below=0.8cm of health] (schedule) {Planifier l'ingestion};
+\draw[arrow] (analyst) -- (ingest);
+\draw[arrow] (analyst) -- (review);
+\draw[arrow] (analyst) -- (catalog);
+\draw[arrow] (admin) -- (health);
+\draw[arrow] (admin) -- (schedule);
+\end{tikzpicture}
+\caption{Cas d'utilisation retenus pour l'application}
+\label{fig:usecases}
+\end{figure}
+
+\section{Cycle de vie attendu d'une détection}
+
+Une règle de détection suit un cycle de vie progressif. Elle naît d'un renseignement, devient un comportement, puis une proposition technique. Elle est ensuite validée, éventuellement corrigée, et enfin soumise à l'analyste. Ce cycle évite de confondre une hypothèse de détection avec une règle prête à être publiée.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+step/.style={draw, rounded corners, minimum width=2.4cm, minimum height=0.85cm, align=center, fill=green!7},
+arrow/.style={-Latex, thick}
+]
+\node[step] (cti) {CTI};
+\node[step, right=0.8cm of cti] (beh) {Comportement};
+\node[step, right=0.8cm of beh] (candidate) {Candidat\\Sigma};
+\node[step, right=0.8cm of candidate] (valid) {Validation};
+\node[step, right=0.8cm of valid] (review) {Revue};
+\node[step, right=0.8cm of review] (catalog) {Catalogue};
+\draw[arrow] (cti) -- (beh);
+\draw[arrow] (beh) -- (candidate);
+\draw[arrow] (candidate) -- (valid);
+\draw[arrow] (valid) -- (review);
+\draw[arrow] (review) -- (catalog);
+\end{tikzpicture}
+\caption{Cycle de vie fonctionnel d'une détection}
+\label{fig:detection-lifecycle}
+\end{figure}
+
+\section{Critères d'acceptation}
+
+Le système devait être jugé sur sa capacité à démontrer un flux complet et traçable. Les critères principaux étaient l'ingestion MISP réelle, la création d'un workflow, la persistance des étapes, l'application effective des watchers, la validation pySigma, la détection de doublons, la possibilité de réparation et le maintien de l'analyste comme autorité finale. Les limites connues devaient également être documentées sans exagération.

@@ -1,0 +1,103 @@
+name: Dev Staging Production Deployment
+
+on:
+  push:
+    branches: [develop, main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        default: staging
+        type: choice
+        options: [development, staging, production]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-publish:
+    name: Build and publish images
+    runs-on: ubuntu-latest
+    outputs:
+      backend_image: ${{ steps.meta.outputs.backend_image }}
+      frontend_image: ${{ steps.meta.outputs.frontend_image }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image tags
+        id: meta
+        run: |
+          BACKEND_IMAGE=ghcr.io/${{ github.repository }}/backend:${{ github.sha }}
+          FRONTEND_IMAGE=ghcr.io/${{ github.repository }}/frontend:${{ github.sha }}
+          echo "backend_image=$BACKEND_IMAGE" >> "$GITHUB_OUTPUT"
+          echo "frontend_image=$FRONTEND_IMAGE" >> "$GITHUB_OUTPUT"
+
+      - name: Build backend
+        run: docker build -t "${{ steps.meta.outputs.backend_image }}" backend
+
+      - name: Build frontend
+        run: docker build -t "${{ steps.meta.outputs.frontend_image }}" frontend
+
+      - name: Push backend
+        run: docker push "${{ steps.meta.outputs.backend_image }}"
+
+      - name: Push frontend
+        run: docker push "${{ steps.meta.outputs.frontend_image }}"
+
+  deploy-development:
+    name: Deploy to Development
+    if: github.ref == 'refs/heads/develop' || github.event.inputs.environment == 'development'
+    needs: build-and-publish
+    runs-on: ubuntu-latest
+    environment: development
+    env:
+      DEVELOPMENT_DEPLOY_WEBHOOK: ${{ secrets.DEVELOPMENT_DEPLOY_WEBHOOK }}
+    steps:
+      - name: Development deployment hook
+        if: env.DEVELOPMENT_DEPLOY_WEBHOOK != ''
+        run: |
+          curl -fsS -X POST "$DEVELOPMENT_DEPLOY_WEBHOOK" \
+            -H "Content-Type: application/json" \
+            -d '{"backend":"${{ needs.build-and-publish.outputs.backend_image }}","frontend":"${{ needs.build-and-publish.outputs.frontend_image }}"}'
+
+  deploy-staging:
+    name: Deploy to Staging
+    if: github.ref == 'refs/heads/main' || github.event.inputs.environment == 'staging'
+    needs: build-and-publish
+    runs-on: ubuntu-latest
+    environment: staging
+    env:
+      STAGING_DEPLOY_WEBHOOK: ${{ secrets.STAGING_DEPLOY_WEBHOOK }}
+    steps:
+      - name: Staging deployment hook
+        if: env.STAGING_DEPLOY_WEBHOOK != ''
+        run: |
+          curl -fsS -X POST "$STAGING_DEPLOY_WEBHOOK" \
+            -H "Content-Type: application/json" \
+            -d '{"backend":"${{ needs.build-and-publish.outputs.backend_image }}","frontend":"${{ needs.build-and-publish.outputs.frontend_image }}"}'
+
+  deploy-production:
+    name: Deploy to Production
+    if: github.event.inputs.environment == 'production'
+    needs: [build-and-publish, deploy-staging]
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      PRODUCTION_DEPLOY_WEBHOOK: ${{ secrets.PRODUCTION_DEPLOY_WEBHOOK }}
+    steps:
+      - name: Production deployment hook
+        if: env.PRODUCTION_DEPLOY_WEBHOOK != ''
+        run: |
+          curl -fsS -X POST "$PRODUCTION_DEPLOY_WEBHOOK" \
+            -H "Content-Type: application/json" \
+            -d '{"backend":"${{ needs.build-and-publish.outputs.backend_image }}","frontend":"${{ needs.build-and-publish.outputs.frontend_image }}"}'

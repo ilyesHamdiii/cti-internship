@@ -1,0 +1,10 @@
+\chapter*{Introduction générale}
+\addcontentsline{toc}{chapter}{Introduction générale}
+
+Les équipes de sécurité reçoivent aujourd'hui un volume important de renseignements sur les menaces. Ces informations peuvent provenir de rapports, d'indicateurs techniques, d'événements MISP ou de sources internes. Leur valeur dépend pourtant de la capacité à les transformer en actions concrètes : comprendre le comportement de l'attaquant, vérifier la couverture existante, produire une logique de détection valide et faire valider le résultat par un analyste.
+
+Dans ce contexte, mon stage d'un mois chez Forvis Mazars Group a porté sur la conception et la réalisation d'un prototype académique intitulé : \textit{Conception et développement d'une plateforme intelligente d'assistance à l'ingénierie de détection basée sur la Cyber Threat Intelligence et l'intelligence artificielle}. L'objectif n'était pas de remplacer l'analyste, mais d'étudier comment l'intelligence artificielle peut assister certaines étapes répétitives de l'ingénierie de détection tout en restant contrôlée par des règles déterministes.
+
+La solution développée repose sur une architecture web complète. Le backend est implémenté avec FastAPI et SQLAlchemy, la persistance avec PostgreSQL, les traitements asynchrones avec Redis et Celery, l'orchestration avec LangGraph et l'interface utilisateur avec Next.js. L'intégration CTI s'appuie sur MISP, tandis que la génération de règles de détection utilise le format Sigma et la validation pySigma. La plateforme comprend également des mécanismes de revue humaine, de détection de doublons, d'analyse de couverture ATT\&CK, de vérification de télémétrie et de suivi de santé du système.
+
+Ce rapport présente d'abord le cadre général du stage, puis l'état de l'art nécessaire à la compréhension du sujet. Il détaille ensuite les besoins, la conception, la réalisation technique, les scénarios de validation, les résultats obtenus et les limites du prototype.

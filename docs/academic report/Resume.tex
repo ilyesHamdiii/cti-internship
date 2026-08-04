@@ -1,0 +1,15 @@
+\chapter*{Résumé}
+\addcontentsline{toc}{chapter}{Résumé}
+
+Ce rapport présente la conception et le développement d'une plateforme intelligente d'assistance à l'ingénierie de détection. Le travail réalisé vise à transformer des renseignements de Cyber Threat Intelligence issus de MISP en propositions de règles Sigma, tout en conservant des mécanismes de contrôle déterministes et une validation humaine. La plateforme s'appuie sur FastAPI, PostgreSQL, Redis, Celery, LangGraph, Next.js, MISP, Sigma et pySigma. L'intelligence artificielle intervient pour extraire des comportements, proposer des mappings MITRE ATT\&CK et générer ou réparer des candidats de détection. Elle reste cependant encadrée par des watchers, des scores de confiance et de trust déterministe, une validation pySigma, une détection de doublons et une file de revue analyste.
+
+Le travail réalisé correspond à un projet de stage et non à un produit commercial prêt pour une production d'entreprise. Les principaux résultats sont une architecture Docker locale, une ingestion MISP, une orchestration de workflow persistée, une interface SOC et une documentation technique. Les limites identifiées concernent notamment le durcissement de l'authentification, l'observabilité, les tests frontend, la vérification complète du mode IA réel et l'intégration SIEM finale.
+
+\textbf{Mots-clés :} CTI, MISP, MITRE ATT\&CK, Sigma, pySigma, LangGraph, FastAPI, Next.js, détection, SOC, intelligence artificielle.
+
+\chapter*{Abstract}
+\addcontentsline{toc}{chapter}{Abstract}
+
+This internship report presents the design and implementation of an AI-assisted detection engineering platform. The platform consumes Cyber Threat Intelligence from MISP and transforms it into reviewed Sigma detection proposals. The AI component supports behavior extraction, ATT\&CK mapping, Sigma generation and repair, but deterministic gates and human analyst approval remain mandatory before catalog publication. The system uses FastAPI, PostgreSQL, Redis, Celery, LangGraph, Next.js, MISP, Sigma and pySigma.
+
+The project demonstrates a realistic local architecture for CTI ingestion, workflow persistence, watcher-based control, confidence and trust scoring, duplicate detection and analyst review. It is not presented as a production-ready commercial system. Remaining limitations include enterprise authentication, monitoring, frontend test automation, full live AI validation and real SIEM deployment.

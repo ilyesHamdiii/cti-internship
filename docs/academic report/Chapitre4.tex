@@ -1,0 +1,176 @@
+\chapter{Conception et architecture de la solution}
+
+\section{Principes de conception}
+
+La conception s'appuie sur trois principes. Le premier est la séparation des responsabilités : l'interface affiche et déclenche, le backend orchestre, les services déterministes vérifient et la base conserve les preuves. Le deuxième est la traçabilité : chaque événement important doit laisser une trace exploitable. Le troisième est la prudence vis-à-vis de l'IA : aucune sortie générée ne doit contourner les validations techniques ou la revue humaine.
+
+Ces principes expliquent les choix d'architecture. Une application monolithique simple aurait été plus rapide à écrire, mais elle aurait mal représenté les contraintes d'un système SOC. À l'inverse, une architecture trop distribuée aurait dépassé le périmètre d'un stage d'un mois. La solution retenue cherche donc un équilibre : plusieurs services clairement séparés, mais orchestrés par Docker Compose dans un environnement local.
+
+\section{Architecture générale}
+
+L'application repose sur une interface Next.js, un backend FastAPI, une base PostgreSQL, Redis, Celery et un proxy Nginx. MISP est intégré comme source CTI externe accessible par API. La figure \ref{fig:architecture-globale} montre les échanges principaux.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+box/.style={draw, rounded corners, minimum width=3cm, minimum height=0.9cm, align=center, fill=gray!8},
+db/.style={draw, cylinder, shape border rotate=90, aspect=0.25, minimum width=2.3cm, minimum height=1.2cm, align=center, fill=green!8},
+arrow/.style={-Latex, thick}
+]
+\node[box] (ui) {Next.js\\Interface SOC};
+\node[box, right=2.1cm of ui] (nginx) {Nginx};
+\node[box, right=2.1cm of nginx] (api) {FastAPI\\API};
+\node[db, below=1.2cm of api] (pg) {PostgreSQL};
+\node[db, below=1.2cm of nginx] (redis) {Redis};
+\node[box, right=2.1cm of api] (worker) {Celery\\Worker};
+\node[box, above=1.2cm of worker] (sched) {Scheduler};
+\node[box, above=1.2cm of api] (misp) {MISP};
+\draw[arrow] (ui) -- (nginx);
+\draw[arrow] (nginx) -- (api);
+\draw[arrow] (api) -- (pg);
+\draw[arrow] (api) -- (redis);
+\draw[arrow] (worker) -- (redis);
+\draw[arrow] (worker) -- (pg);
+\draw[arrow] (sched) -- (redis);
+\draw[arrow] (api) -- (misp);
+\draw[arrow] (worker) -- (misp);
+\end{tikzpicture}
+\caption{Architecture globale de la plateforme}
+\label{fig:architecture-globale}
+\end{figure}
+
+FastAPI a été choisi pour sa rapidité de développement, sa validation Pydantic et sa documentation automatique. PostgreSQL a été retenu car le modèle mélange des relations fortes et des données JSONB, ce qui convient aux événements CTI et aux traces IA. Redis et Celery répondent au besoin d'exécution asynchrone : une analyse CTI peut nécessiter plusieurs étapes et ne doit pas bloquer une requête HTTP. Next.js offre une base adaptée à une interface SOC réactive et typée.
+
+\section{Architecture Docker}
+
+Docker Compose permet de déployer de manière reproductible les services nécessaires au démonstrateur. Les services applicatifs principaux sont séparés de l'environnement MISP, qui fonctionne sous profil dédié. Cette séparation répond à deux besoins : limiter la complexité au démarrage lorsque MISP n'est pas nécessaire, et isoler les services MISP sur un réseau spécifique.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+service/.style={draw, rounded corners, minimum width=2.8cm, minimum height=0.75cm, align=center, fill=blue!6},
+net/.style={draw, dashed, rounded corners, inner sep=0.35cm},
+arrow/.style={-Latex}
+]
+\node[service] (nginx) {nginx};
+\node[service, below=0.55cm of nginx] (frontend) {frontend};
+\node[service, right=1.3cm of nginx] (backend) {backend};
+\node[service, below=0.55cm of backend] (worker) {worker};
+\node[service, below=0.55cm of worker] (scheduler) {scheduler};
+\node[service, right=1.3cm of backend] (postgres) {postgres};
+\node[service, below=0.55cm of postgres] (redis) {redis};
+\node[service, right=1.7cm of postgres] (mispweb) {misp};
+\node[service, below=0.55cm of mispweb] (mispdb) {misp-db};
+\node[service, below=0.55cm of mispdb] (mispcache) {misp-cache};
+\node[net, fit=(nginx)(frontend)(backend)(worker)(scheduler)(postgres)(redis), label=below:{réseau applicatif}] {};
+\node[net, fit=(mispweb)(mispdb)(mispcache), label=below:{réseau MISP isolé}] {};
+\draw[arrow] (backend) -- (mispweb);
+\draw[arrow] (worker) -- (mispweb);
+\end{tikzpicture}
+\caption{Organisation Docker et séparation du réseau MISP}
+\label{fig:docker-architecture}
+\end{figure}
+
+\section{Conception du workflow IA}
+
+L'usage de LangGraph est motivé par le besoin de représenter explicitement le chemin suivi par un événement. Contrairement à une suite de fonctions appelée linéairement, un graphe permet de modéliser des routes terminales différentes : déjà couvert, gap de visibilité, rejet, réparation ou revue. Il permet également de reprendre un traitement et de conserver une trace de chaque noeud.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+node distance=0.85cm and 0.9cm,
+step/.style={draw, rounded corners, minimum width=2.55cm, minimum height=0.75cm, align=center, fill=blue!6},
+gate/.style={draw, diamond, aspect=2.0, minimum width=2.5cm, align=center, fill=yellow!12},
+term/.style={draw, rounded corners, minimum width=2.6cm, minimum height=0.75cm, align=center, fill=green!8},
+arrow/.style={-Latex}
+]
+\node[step] (ingest) {Ingestion};
+\node[step, right=of ingest] (behavior) {Extraction\\comportement};
+\node[step, right=of behavior] (attack) {Mapping\\ATT\&CK};
+\node[step, right=of attack] (coverage) {Couverture\\Télémétrie};
+\node[gate, below=of coverage] (policy) {Décision\\politique};
+\node[step, left=of policy] (sigma) {Génération\\Sigma};
+\node[step, left=of sigma] (watch) {Watchers\\Validation};
+\node[gate, below=of watch] (satisfied) {Satisfait ?};
+\node[step, right=of satisfied] (repair) {Réparation\\même session};
+\node[term, below=of satisfied] (review) {Revue\\analyste};
+\node[term, below=of policy] (terminal) {Couvert\\Gap\\Rejet};
+\draw[arrow] (ingest) -- (behavior);
+\draw[arrow] (behavior) -- (attack);
+\draw[arrow] (attack) -- (coverage);
+\draw[arrow] (coverage) -- (policy);
+\draw[arrow] (policy) -- node[above]{générer} (sigma);
+\draw[arrow] (policy) -- node[right]{terminal} (terminal);
+\draw[arrow] (sigma) -- (watch);
+\draw[arrow] (watch) -- (satisfied);
+\draw[arrow] (satisfied) -- node[above]{non} (repair);
+\draw[arrow] (repair) -- (watch);
+\draw[arrow] (satisfied) -- node[left]{oui} (review);
+\end{tikzpicture}
+\caption{Workflow LangGraph et boucle de réparation}
+\label{fig:workflow-langgraph}
+\end{figure}
+
+\section{Ingestion MISP}
+
+L'ingestion MISP suit une séquence contrôlée. L'utilisateur ou le scheduler demande l'évaluation des événements, le backend interroge MISP, vérifie l'idempotence, crée ou ignore l'événement CTI, puis enregistre un statut de consommation. Cette granularité est importante car une ingestion en lot doit conserver un résultat individuel pour chaque événement évalué.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+step/.style={draw, rounded corners, minimum width=2.55cm, minimum height=0.8cm, align=center, fill=purple!6},
+arrow/.style={-Latex, thick}
+]
+\node[step] (trigger) {Utilisateur\\ou scheduler};
+\node[step, right=0.7cm of trigger] (api) {API MISP\\backend};
+\node[step, right=0.7cm of api] (misp) {Service\\MISP};
+\node[step, right=0.7cm of misp] (norm) {Normalisation\\CTI};
+\node[step, right=0.7cm of norm] (ledger) {Registre de\\consommation};
+\draw[arrow] (trigger) -- (api);
+\draw[arrow] (api) -- (misp);
+\draw[arrow] (misp) -- (norm);
+\draw[arrow] (norm) -- (ledger);
+\end{tikzpicture}
+\caption{Workflow d'ingestion MISP}
+\label{fig:misp-ingestion}
+\end{figure}
+
+\section{Modèle de données}
+
+Le modèle de données a été conçu pour relier les sources, les décisions et les résultats. Les événements CTI alimentent les workflows. Les workflows produisent des comportements, des mappings, des analyses de couverture, des résultats de visibilité, des propositions et des révisions. Les tables de sessions IA, watchers et événements de confiance permettent de reconstruire la logique de raisonnement sans exposer de chaîne de pensée.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+entity/.style={draw, rounded corners, minimum width=2.7cm, minimum height=0.75cm, align=center, fill=gray!8},
+arrow/.style={-Latex}
+]
+\node[entity] (cti) {cti\_events};
+\node[entity, right=1.1cm of cti] (wf) {workflows};
+\node[entity, right=1.1cm of wf] (run) {graph\_runs};
+\node[entity, below=0.75cm of wf] (beh) {behaviors};
+\node[entity, right=1.1cm of beh] (prop) {proposals};
+\node[entity, right=1.1cm of prop] (rev) {proposal\\revisions};
+\node[entity, below=0.75cm of prop] (val) {validation\\results};
+\node[entity, below=0.75cm of run] (session) {ai reasoning\\sessions};
+\node[entity, right=1.1cm of session] (airev) {ai reasoning\\revisions};
+\node[entity, below=0.75cm of cti] (cons) {consumption\\records};
+\draw[arrow] (cti) -- (wf);
+\draw[arrow] (wf) -- (run);
+\draw[arrow] (wf) -- (beh);
+\draw[arrow] (beh) -- (prop);
+\draw[arrow] (prop) -- (rev);
+\draw[arrow] (rev) -- (val);
+\draw[arrow] (run) -- (session);
+\draw[arrow] (session) -- (airev);
+\draw[arrow] (cti) -- (cons);
+\end{tikzpicture}
+\caption{Vue simplifiée du schéma de données}
+\label{fig:database-schema}
+\end{figure}
+
+\section{Rôle des watchers et des scores}
+
+Les watchers ont été introduits pour matérialiser des contrôles lisibles : conformité du schéma, présence d'évidence, cohérence ATT\&CK, validité Sigma, niveau de confiance, doublons, télémétrie, hallucination et sécurité. Ils répondent à une exigence de gouvernance de l'IA. Un candidat n'est pas accepté parce qu'il semble correct ; il est accepté seulement si les contrôles pertinents sont satisfaits ou si les risques restants justifient une revue.
+
+La séparation entre confiance et trust complète cette logique. La confiance peut représenter la qualité estimée d'une proposition, tandis que le trust agrège des facteurs déterministes. Ainsi, une validation Sigma échouée, un doublon exact ou une absence de télémétrie ne peuvent pas être compensés par une note élevée produite par l'IA.
