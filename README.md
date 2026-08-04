@@ -80,3 +80,5 @@ See `docs/FINAL_QUALITY_AUDIT.md` for the current quality scorecard, known limit
 For the complete repository-derived engineering reference intended to support an academic internship report, see `docs/COMPLETE_TECHNICAL_ENGINEERING_REPORT.md`.
 
 For the DevSecOps pipeline, GitHub Actions quality gates, security scans, integration/E2E strategy, and Dev -> Staging -> Production workflow, see `docs/DEVSECOPS_PIPELINE.md`.
+
+## CI validation
