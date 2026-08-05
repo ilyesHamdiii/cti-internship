@@ -19,8 +19,12 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse
         raise HTTPException(status_code=401, detail="Invalid credentials")
     settings = get_settings()
     return TokenResponse(
-        access_token=create_token(user.id, user.role.value, settings.access_token_minutes, "access"),
-        refresh_token=create_token(user.id, user.role.value, settings.refresh_token_minutes, "refresh"),
+        access_token=create_token(
+            user.id, user.role.value, settings.access_token_minutes, "access"
+        ),
+        refresh_token=create_token(
+            user.id, user.role.value, settings.refresh_token_minutes, "refresh"
+        ),
     )
 
 
@@ -28,11 +32,17 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse
 def refresh(user: User = Depends(refresh_user)) -> TokenResponse:
     settings = get_settings()
     return TokenResponse(
-        access_token=create_token(user.id, user.role.value, settings.access_token_minutes, "access"),
-        refresh_token=create_token(user.id, user.role.value, settings.refresh_token_minutes, "refresh"),
+        access_token=create_token(
+            user.id, user.role.value, settings.access_token_minutes, "access"
+        ),
+        refresh_token=create_token(
+            user.id, user.role.value, settings.refresh_token_minutes, "refresh"
+        ),
     )
 
 
 @router.get("/me", response_model=UserResponse)
 def me(user: User = Depends(current_user)) -> UserResponse:
-    return UserResponse(id=user.id, email=user.email, display_name=user.display_name, role=user.role.value)
+    return UserResponse(
+        id=user.id, email=user.email, display_name=user.display_name, role=user.role.value
+    )

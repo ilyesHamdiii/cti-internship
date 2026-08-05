@@ -1,5 +1,6 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from types import SimpleNamespace
+from typing import Self
 
 import httpx
 from pydantic import SecretStr
@@ -53,7 +54,7 @@ def test_misp_connectivity_reports_authentication_failed(monkeypatch) -> None:
         def __init__(self, **_: object):
             pass
 
-        def __enter__(self) -> "Client":
+        def __enter__(self) -> Self:
             return self
 
         def __exit__(self, *_: object) -> None:
@@ -79,7 +80,7 @@ def test_misp_connectivity_reports_healthy_after_poll(monkeypatch) -> None:
         def __init__(self, **_: object):
             pass
 
-        def __enter__(self) -> "Client":
+        def __enter__(self) -> Self:
             return self
 
         def __exit__(self, *_: object) -> None:
@@ -88,7 +89,7 @@ def test_misp_connectivity_reports_healthy_after_poll(monkeypatch) -> None:
         def get(self, _: str, **__: object) -> httpx.Response:
             return httpx.Response(200, json={"version": "2.5"})
 
-    state = MispPollState(id=1, last_event_id="42", updated_at=datetime.utcnow())
+    state = MispPollState(id=1, last_event_id="42", updated_at=datetime.now(UTC))
     monkeypatch.setattr(misp, "get_settings", lambda: settings())
     monkeypatch.setattr(httpx, "Client", Client)
 

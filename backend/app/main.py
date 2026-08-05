@@ -28,7 +28,10 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(Exception)
     async def exception_handler(_: Request, exc: Exception) -> JSONResponse:
-        return JSONResponse(status_code=500, content={"error": {"code": "internal_error", "message": str(exc), "details": {}}})
+        return JSONResponse(
+            status_code=500,
+            content={"error": {"code": "internal_error", "message": str(exc), "details": {}}},
+        )
 
     app.include_router(auth_router, prefix="/api/v1")
     app.include_router(api_router, prefix="/api/v1")

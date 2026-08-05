@@ -17,11 +17,21 @@ def test_detection_engineering_graph_is_compiled_langgraph() -> None:
 @pytest.mark.asyncio
 async def test_fixture_behavior_extraction_is_input_sensitive() -> None:
     client = DeepSeekClient()
-    powershell, _ = await client.analyze_cti({"attributes": [{"id": "1", "value": "powershell.exe -EncodedCommand AAA"}]})
-    wmi, _ = await client.analyze_cti({"attributes": [{"id": "1", "value": "wmic process call create calc.exe"}]})
-    rundll, _ = await client.analyze_cti({"attributes": [{"id": "1", "value": "rundll32.exe javascript dll execution"}]})
+    powershell, _ = await client.analyze_cti(
+        {"attributes": [{"id": "1", "value": "powershell.exe -EncodedCommand AAA"}]}
+    )
+    wmi, _ = await client.analyze_cti(
+        {"attributes": [{"id": "1", "value": "wmic process call create calc.exe"}]}
+    )
+    rundll, _ = await client.analyze_cti(
+        {"attributes": [{"id": "1", "value": "rundll32.exe javascript dll execution"}]}
+    )
 
-    summaries = {powershell.behaviors[0].summary, wmi.behaviors[0].summary, rundll.behaviors[0].summary}
+    summaries = {
+        powershell.behaviors[0].summary,
+        wmi.behaviors[0].summary,
+        rundll.behaviors[0].summary,
+    }
 
     assert len(summaries) == 3
 
@@ -29,7 +39,9 @@ async def test_fixture_behavior_extraction_is_input_sensitive() -> None:
 @pytest.mark.asyncio
 async def test_fixture_sigma_generation_is_input_sensitive() -> None:
     client = DeepSeekClient()
-    powershell, _ = await client.generate_sigma({"behavior": {"summary": "PowerShell encoded command execution"}})
+    powershell, _ = await client.generate_sigma(
+        {"behavior": {"summary": "PowerShell encoded command execution"}}
+    )
     wmi, _ = await client.generate_sigma({"behavior": {"summary": "WMI process execution"}})
 
     assert powershell.sigma.title != wmi.sigma.title
@@ -37,15 +49,22 @@ async def test_fixture_sigma_generation_is_input_sensitive() -> None:
 
 
 @pytest.mark.asyncio
-async def test_fixture_semantic_repair_interprets_download_instruction_without_copying_prose() -> None:
+async def test_fixture_semantic_repair_interprets_download_instruction_without_copying_prose() -> (
+    None
+):
     client = DeepSeekClient()
-    original, _ = await client.generate_sigma({"behavior": {"summary": "PowerShell encoded command execution"}})
+    original, _ = await client.generate_sigma(
+        {"behavior": {"summary": "PowerShell encoded command execution"}}
+    )
 
     repaired, _ = await client.repair_sigma(
         {
             "analyst_comment": "Require the command line to include remote content download wording",
             "candidate": original.sigma.model_dump(),
-            "behavior": {"summary": "PowerShell encoded command execution", "observables": [{"type": "process", "value": "powershell.exe -EncodedCommand"}]},
+            "behavior": {
+                "summary": "PowerShell encoded command execution",
+                "observables": [{"type": "process", "value": "powershell.exe -EncodedCommand"}],
+            },
             "validation": {"errors": []},
             "available_telemetry": [{"category": "process", "fields": ["Image", "CommandLine"]}],
         }
@@ -66,18 +85,23 @@ async def test_fixture_semantic_repair_interprets_download_instruction_without_c
         "wget",
     ]
     assert selection["CommandLine|contains|all"] == ["-enc"]
-    assert repaired.instruction_interpretation == "Require evidence of remote content download behavior in the process command line."
+    assert (
+        repaired.instruction_interpretation
+        == "Require evidence of remote content download behavior in the process command line."
+    )
     assert repaired.detection_value_evidence[0]["source"] == "recognized_behavioral_pattern"
 
 
 @pytest.mark.asyncio
 async def test_fixture_semantic_repair_allows_quoted_technical_literal_only() -> None:
     client = DeepSeekClient()
-    original, _ = await client.generate_sigma({"behavior": {"summary": "PowerShell encoded command execution"}})
+    original, _ = await client.generate_sigma(
+        {"behavior": {"summary": "PowerShell encoded command execution"}}
+    )
 
     repaired, _ = await client.repair_sigma(
         {
-            "analyst_comment": "Please include \"FromBase64String\" in command line detection",
+            "analyst_comment": 'Please include "FromBase64String" in command line detection',
             "candidate": original.sigma.model_dump(),
             "behavior": {"summary": "PowerShell encoded command execution"},
             "validation": {"errors": []},
@@ -96,10 +120,12 @@ async def test_fixture_semantic_repair_allows_quoted_technical_literal_only() ->
 @pytest.mark.asyncio
 async def test_fixture_repeated_semantic_repair_preserves_prior_selection_values() -> None:
     client = DeepSeekClient()
-    original, _ = await client.generate_sigma({"behavior": {"summary": "Suspicious rundll32 execution"}})
+    original, _ = await client.generate_sigma(
+        {"behavior": {"summary": "Suspicious rundll32 execution"}}
+    )
     first, _ = await client.repair_sigma(
         {
-            "analyst_comment": "Please include \"javascript:\" in command line detection",
+            "analyst_comment": 'Please include "javascript:" in command line detection',
             "candidate": original.sigma.model_dump(),
             "behavior": {"summary": "Suspicious rundll32 execution"},
             "validation": {"errors": []},
@@ -107,7 +133,7 @@ async def test_fixture_repeated_semantic_repair_preserves_prior_selection_values
     )
     second, _ = await client.repair_sigma(
         {
-            "analyst_comment": "Please include \"mshtml\" in command line detection",
+            "analyst_comment": 'Please include "mshtml" in command line detection',
             "candidate": first.sigma.model_dump(),
             "behavior": {"summary": "Suspicious rundll32 execution"},
             "validation": {"errors": []},
@@ -160,7 +186,11 @@ def test_unsupported_logsource_fails() -> None:
 
 
 def test_duplicate_detection_exact_match(dummy_db) -> None:
-    candidate = {"title": "Same", "logsource": {"product": "windows"}, "detection": {"selection": {"Image": "x"}, "condition": "selection"}}
+    candidate = {
+        "title": "Same",
+        "logsource": {"product": "windows"},
+        "detection": {"selection": {"Image": "x"}, "condition": "selection"},
+    }
     duplicate = DuplicateDetectionService(dummy_db([candidate])).analyze(candidate, "Image=x")
 
     assert duplicate["status"] == "exact_duplicate"
@@ -168,26 +198,71 @@ def test_duplicate_detection_exact_match(dummy_db) -> None:
 
 
 def test_duplicate_detection_near_duplicate(dummy_db) -> None:
-    existing = {"title": "PowerShell Encoded", "detection": {"selection": {"Image": "powershell.exe", "CommandLine": "-enc"}, "condition": "selection"}, "compiled_outputs": {"query": "Image=powershell CommandLine=-encodedcommand"}}
-    candidate = {"title": "PowerShell Encoded", "detection": {"selection": {"Image": "powershell.exe", "CommandLine": "-encodedcommand"}, "condition": "selection"}}
-    duplicate = DuplicateDetectionService(dummy_db([existing])).analyze(candidate, "Image=powershell CommandLine=-encodedcommand")
+    existing = {
+        "title": "PowerShell Encoded",
+        "detection": {
+            "selection": {"Image": "powershell.exe", "CommandLine": "-enc"},
+            "condition": "selection",
+        },
+        "compiled_outputs": {"query": "Image=powershell CommandLine=-encodedcommand"},
+    }
+    candidate = {
+        "title": "PowerShell Encoded",
+        "detection": {
+            "selection": {"Image": "powershell.exe", "CommandLine": "-encodedcommand"},
+            "condition": "selection",
+        },
+    }
+    duplicate = DuplicateDetectionService(dummy_db([existing])).analyze(
+        candidate, "Image=powershell CommandLine=-encodedcommand"
+    )
 
     assert duplicate["status"] == "near_duplicate"
     assert duplicate["recommended_action"] == "allow_review_with_warning"
 
 
 def test_duplicate_detection_overlapping(dummy_db) -> None:
-    existing = {"title": "PowerShell Encoded", "detection": {"selection": {"Image": "powershell.exe", "CommandLine": "-enc"}, "condition": "selection"}, "compiled_outputs": {"query": "Image=powershell CommandLine=-enc ParentImage=cmd User=admin"}}
-    candidate = {"title": "Suspicious PowerShell Download", "detection": {"selection": {"Image": "powershell.exe", "CommandLine": "DownloadString"}, "condition": "selection"}}
-    duplicate = DuplicateDetectionService(dummy_db([existing])).analyze(candidate, "Image=powershell CommandLine=DownloadString ParentImage=cmd User=admin")
+    existing = {
+        "title": "PowerShell Encoded",
+        "detection": {
+            "selection": {"Image": "powershell.exe", "CommandLine": "-enc"},
+            "condition": "selection",
+        },
+        "compiled_outputs": {
+            "query": "Image=powershell CommandLine=-enc ParentImage=cmd User=admin"
+        },
+    }
+    candidate = {
+        "title": "Suspicious PowerShell Download",
+        "detection": {
+            "selection": {"Image": "powershell.exe", "CommandLine": "DownloadString"},
+            "condition": "selection",
+        },
+    }
+    duplicate = DuplicateDetectionService(dummy_db([existing])).analyze(
+        candidate, "Image=powershell CommandLine=DownloadString ParentImage=cmd User=admin"
+    )
 
     assert duplicate["status"] == "overlapping"
     assert duplicate["recommended_action"] == "display_overlap_evidence"
 
 
 def test_duplicate_detection_supersedes(dummy_db) -> None:
-    candidate = {"title": "Replacement", "supersedes_detection_id": "det-1", "detection": {"selection": {"Image": "x"}, "condition": "selection"}}
-    duplicate = DuplicateDetectionService(dummy_db([{"title": "Old", "detection": {"selection": {"Image": "old"}, "condition": "selection"}}])).analyze(candidate, "Image=x")
+    candidate = {
+        "title": "Replacement",
+        "supersedes_detection_id": "det-1",
+        "detection": {"selection": {"Image": "x"}, "condition": "selection"},
+    }
+    duplicate = DuplicateDetectionService(
+        dummy_db(
+            [
+                {
+                    "title": "Old",
+                    "detection": {"selection": {"Image": "old"}, "condition": "selection"},
+                }
+            ]
+        )
+    ).analyze(candidate, "Image=x")
 
     assert duplicate["status"] == "supersedes"
     assert duplicate["matched_detection_id"] == "det-1"
@@ -195,15 +270,30 @@ def test_duplicate_detection_supersedes(dummy_db) -> None:
 
 
 def test_duplicate_detection_unique(dummy_db) -> None:
-    candidate = {"title": "Credential Dump", "detection": {"selection": {"CommandLine": "lsass"}, "condition": "selection"}}
-    duplicate = DuplicateDetectionService(dummy_db([{"title": "WMI", "detection": {"selection": {"Image": "wmic.exe"}, "condition": "selection"}}])).analyze(candidate, "CommandLine=lsass")
+    candidate = {
+        "title": "Credential Dump",
+        "detection": {"selection": {"CommandLine": "lsass"}, "condition": "selection"},
+    }
+    duplicate = DuplicateDetectionService(
+        dummy_db(
+            [
+                {
+                    "title": "WMI",
+                    "detection": {"selection": {"Image": "wmic.exe"}, "condition": "selection"},
+                }
+            ]
+        )
+    ).analyze(candidate, "CommandLine=lsass")
 
     assert duplicate["status"] == "unique"
     assert duplicate["recommended_action"] == "allow_review"
 
 
 def test_duplicate_detection_unknown_without_compiled_query(dummy_db) -> None:
-    candidate = {"title": "Unknown", "detection": {"selection": {"Image": "x"}, "condition": "selection"}}
+    candidate = {
+        "title": "Unknown",
+        "detection": {"selection": {"Image": "x"}, "condition": "selection"},
+    }
     duplicate = DuplicateDetectionService(dummy_db([])).analyze(candidate, None)
 
     assert duplicate["status"] == "unknown"
@@ -213,7 +303,11 @@ def test_duplicate_detection_unknown_without_compiled_query(dummy_db) -> None:
 class Detection:
     def __init__(self, normalized_logic):
         self.id = "det-1"
-        compiled_outputs = normalized_logic.get("compiled_outputs", {"query": "Image=x"}) if isinstance(normalized_logic, dict) else {"query": "Image=x"}
+        compiled_outputs = (
+            normalized_logic.get("compiled_outputs", {"query": "Image=x"})
+            if isinstance(normalized_logic, dict)
+            else {"query": "Image=x"}
+        )
         self.normalized_logic = {"sigma": normalized_logic, "compiled_outputs": compiled_outputs}
 
 

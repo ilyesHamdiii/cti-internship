@@ -10,12 +10,16 @@ class TelemetryService:
         self.db = db
 
     def analyze(self, required_sources: list[dict[str, object]]) -> dict[str, object]:
-        sources = self.db.scalars(select(TelemetrySource).where(TelemetrySource.enabled.is_(True))).all()
+        sources = self.db.scalars(
+            select(TelemetrySource).where(TelemetrySource.enabled.is_(True))
+        ).all()
         available_ids: list[str] = []
         missing: list[dict[str, object]] = []
         for required in required_sources:
             category = str(required.get("category", "")).lower()
-            fields = {str(field).lower() for field in required.get("fields", [])}
+            raw_fields = required.get("fields", [])
+            required_fields = raw_fields if isinstance(raw_fields, list) else []
+            fields = {str(field).lower() for field in required_fields}
             matched = [
                 source
                 for source in sources

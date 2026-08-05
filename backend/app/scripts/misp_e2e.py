@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime
 import time
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -51,7 +51,9 @@ def create_misp_event() -> dict[str, Any]:
         "Accept": "application/json",
         "Content-Type": "application/json",
     }
-    with httpx.Client(verify=settings.misp_verify_tls, timeout=30.0, follow_redirects=True) as client:
+    with httpx.Client(
+        verify=settings.misp_verify_tls, timeout=30.0, follow_redirects=True
+    ) as client:
         response = client.post(
             f"{settings.misp_url.rstrip('/')}/events/add",
             headers=headers,
@@ -70,7 +72,9 @@ def find_platform_event(marker: str) -> tuple[CtiEvent | None, Workflow | None, 
             .where(CtiEvent.title.contains(marker))
             .order_by(CtiEvent.received_at.desc())
         ).first()
-        workflow = db.scalar(select(Workflow).where(Workflow.cti_event_id == event.id)) if event else None
+        workflow = (
+            db.scalar(select(Workflow).where(Workflow.cti_event_id == event.id)) if event else None
+        )
         graph_run = None
         if workflow:
             graph_run = db.scalars(
@@ -106,7 +110,9 @@ def main() -> None:
         time.sleep(5)
 
     if not event or not workflow or not graph_run:
-        raise RuntimeError("MISP event was not ingested into a workflow and graph run before timeout")
+        raise RuntimeError(
+            "MISP event was not ingested into a workflow and graph run before timeout"
+        )
 
     print(f"cti_event_id={event.id}")
     print(f"misp_event_id={event.misp_event_id}")
@@ -114,7 +120,7 @@ def main() -> None:
     print(f"workflow_status={workflow.status}")
     print(f"graph_run_id={graph_run.id}")
     print(f"graph_status={graph_run.status}")
-    print(f"finished_at={datetime.utcnow().isoformat()}")
+    print(f"finished_at={datetime.now(UTC).isoformat()}")
 
 
 if __name__ == "__main__":

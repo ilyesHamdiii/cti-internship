@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     seeded_admin_password: SecretStr = Field(default=SecretStr("ChangeMe123!"))
 
     deepseek_api_key: SecretStr | None = None
-    deepseek_base_url: AnyUrl = "https://api.deepseek.com"
+    deepseek_base_url: AnyUrl = AnyUrl("https://api.deepseek.com")
     deepseek_model: str = "deepseek-chat"
     deepseek_prompt_token_cost: float = 0.00000014
     deepseek_completion_token_cost: float = 0.00000028

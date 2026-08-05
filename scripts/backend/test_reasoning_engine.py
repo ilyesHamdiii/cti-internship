@@ -19,7 +19,10 @@ def test_behavior_watchers_fail_when_evidence_is_missing() -> None:
 
     watchers = WatcherEngine().evaluate_behavior_extraction(normalized, response)
 
-    assert any(watcher["watcher_name"] == "evidence" and watcher["status"] == "FAIL" for watcher in watchers)
+    assert any(
+        watcher["watcher_name"] == "evidence" and watcher["status"] == "FAIL"
+        for watcher in watchers
+    )
 
 
 def test_candidate_watchers_and_confidence_reward_valid_unique_detection() -> None:
@@ -27,10 +30,19 @@ def test_candidate_watchers_and_confidence_reward_valid_unique_detection() -> No
         "title": "Suspicious PowerShell Encoded Command",
         "detection": {"selection": {"CommandLine|contains": "-enc"}, "condition": "selection"},
     }
-    validation = {"valid": True, "repairable": False, "duplicate_status": "unique", "duplicate_result": {"status": "unique"}}
-    watchers = WatcherEngine().evaluate_candidate(candidate, validation, ["Image", "CommandLine"], 0.9)
+    validation = {
+        "valid": True,
+        "repairable": False,
+        "duplicate_status": "unique",
+        "duplicate_result": {"status": "unique"},
+    }
+    watchers = WatcherEngine().evaluate_candidate(
+        candidate, validation, ["Image", "CommandLine"], 0.9
+    )
 
-    confidence = ConfidenceEngine().assess(validation, watchers, 0.9, 0, "not_covered", "visible", "unique")
+    confidence = ConfidenceEngine().assess(
+        validation, watchers, 0.9, 0, "not_covered", "visible", "unique"
+    )
 
     assert all(watcher["status"] == "PASS" for watcher in watchers)
     assert confidence["score"] >= 0.85
@@ -47,18 +59,38 @@ def test_trust_engine_does_not_approve_invalid_candidate_on_ai_confidence_alone(
 
 
 def test_route_validation_repairs_repairable_invalid_candidate(monkeypatch) -> None:
-    monkeypatch.setattr(runner, "get_settings", lambda: SimpleNamespace(max_repair_attempts=3, reasoning_max_revisions=3, reasoning_min_improvement_delta=0.03))
+    monkeypatch.setattr(
+        runner,
+        "get_settings",
+        lambda: SimpleNamespace(
+            max_repair_attempts=3, reasoning_max_revisions=3, reasoning_min_improvement_delta=0.03
+        ),
+    )
     graph = object.__new__(DetectionEngineeringGraph)
 
-    route = graph._route_validation({"validation": {"valid": False, "repairable": True, "confidence_delta": 0.2}, "repair_attempts": 0})
+    route = graph._route_validation(
+        {
+            "validation": {"valid": False, "repairable": True, "confidence_delta": 0.2},
+            "repair_attempts": 0,
+        }
+    )
 
     assert route == "repairable_invalid"
 
 
 def test_route_validation_stops_on_max_revision_exhaustion(monkeypatch) -> None:
-    monkeypatch.setattr(runner, "get_settings", lambda: SimpleNamespace(max_repair_attempts=3, reasoning_max_revisions=2, reasoning_min_improvement_delta=0.03))
+    monkeypatch.setattr(
+        runner,
+        "get_settings",
+        lambda: SimpleNamespace(
+            max_repair_attempts=3, reasoning_max_revisions=2, reasoning_min_improvement_delta=0.03
+        ),
+    )
     graph = object.__new__(DetectionEngineeringGraph)
-    state = {"validation": {"valid": False, "repairable": True, "confidence_delta": 0.2}, "repair_attempts": 2}
+    state = {
+        "validation": {"valid": False, "repairable": True, "confidence_delta": 0.2},
+        "repair_attempts": 2,
+    }
 
     route = graph._route_validation(state)
 
@@ -67,9 +99,18 @@ def test_route_validation_stops_on_max_revision_exhaustion(monkeypatch) -> None:
 
 
 def test_route_validation_stops_on_minimum_improvement(monkeypatch) -> None:
-    monkeypatch.setattr(runner, "get_settings", lambda: SimpleNamespace(max_repair_attempts=3, reasoning_max_revisions=3, reasoning_min_improvement_delta=0.03))
+    monkeypatch.setattr(
+        runner,
+        "get_settings",
+        lambda: SimpleNamespace(
+            max_repair_attempts=3, reasoning_max_revisions=3, reasoning_min_improvement_delta=0.03
+        ),
+    )
     graph = object.__new__(DetectionEngineeringGraph)
-    state = {"validation": {"valid": False, "repairable": True, "confidence_delta": 0.01}, "repair_attempts": 1}
+    state = {
+        "validation": {"valid": False, "repairable": True, "confidence_delta": 0.01},
+        "repair_attempts": 1,
+    }
 
     route = graph._route_validation(state)
 
@@ -91,10 +132,26 @@ def test_confidence_examples_cover_expected_quadrants() -> None:
     passing_watchers = [{"status": "PASS"}] * 7
     failing_watchers = [{"status": "FAIL"}] * 3
 
-    high_conf_low_trust = TrustEngine().assess({"valid": False, "repairable": False}, failing_watchers, 0.95)
-    medium_conf_high_trust = TrustEngine().assess({"valid": True}, passing_watchers, engine.assess({"valid": True}, passing_watchers, 0.55, 0, "not_covered", "visible", "unique")["score"])
-    high_conf_high_trust = TrustEngine().assess({"valid": True}, passing_watchers, engine.assess({"valid": True}, passing_watchers, 0.95, 0, "not_covered", "visible", "unique")["score"])
-    low_conf_low_trust = TrustEngine().assess({"valid": False, "repairable": True}, failing_watchers, 0.2)
+    high_conf_low_trust = TrustEngine().assess(
+        {"valid": False, "repairable": False}, failing_watchers, 0.95
+    )
+    medium_conf_high_trust = TrustEngine().assess(
+        {"valid": True},
+        passing_watchers,
+        engine.assess(
+            {"valid": True}, passing_watchers, 0.55, 0, "not_covered", "visible", "unique"
+        )["score"],
+    )
+    high_conf_high_trust = TrustEngine().assess(
+        {"valid": True},
+        passing_watchers,
+        engine.assess(
+            {"valid": True}, passing_watchers, 0.95, 0, "not_covered", "visible", "unique"
+        )["score"],
+    )
+    low_conf_low_trust = TrustEngine().assess(
+        {"valid": False, "repairable": True}, failing_watchers, 0.2
+    )
 
     assert high_conf_low_trust["recommendation"] == "reject"
     assert medium_conf_high_trust["score"] >= 0.75

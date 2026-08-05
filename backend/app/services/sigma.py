@@ -1,14 +1,14 @@
-from datetime import datetime
-from importlib import metadata
-from typing import Any
+from datetime import UTC, datetime
+from importlib import import_module, metadata
+from typing import Any, cast
 
 import yaml
 from pydantic import ValidationError
 from sigma.collection import SigmaCollection
+from sigma.exceptions import SigmaError
 
 from app.core.config import get_settings
 from app.schemas.ai import SigmaCandidate
-
 
 SUPPORTED_LOGSOURCES = {
     ("windows", "process_creation"),
@@ -32,8 +32,13 @@ class SigmaValidationService:
     def to_yaml(self, candidate: SigmaCandidate) -> str:
         return yaml.safe_dump(candidate.model_dump(exclude_none=True), sort_keys=False)
 
-    def validate(self, payload: dict[str, Any], required_techniques: list[str], telemetry_fields: list[str] | None = None) -> dict[str, Any]:
-        started = datetime.utcnow()
+    def validate(
+        self,
+        payload: dict[str, Any],
+        required_techniques: list[str],
+        telemetry_fields: list[str] | None = None,
+    ) -> dict[str, Any]:
+        started = datetime.now(UTC)
         errors: list[dict[str, str]] = []
         warnings: list[dict[str, str]] = []
         try:
@@ -42,28 +47,56 @@ class SigmaValidationService:
             return invalid("schema_invalid", str(exc), started)
 
         if "condition" not in candidate.detection:
-            errors.append({"code": "missing_condition", "message": "Sigma detection condition is required"})
+            errors.append(
+                {"code": "missing_condition", "message": "Sigma detection condition is required"}
+            )
         if not any(key != "condition" for key in candidate.detection):
-            errors.append({"code": "missing_detection_selection", "message": "At least one detection selection is required"})
+            errors.append(
+                {
+                    "code": "missing_detection_selection",
+                    "message": "At least one detection selection is required",
+                }
+            )
 
         product = candidate.logsource.get("product", "")
         category = candidate.logsource.get("category", "")
         if (product, category) not in SUPPORTED_LOGSOURCES:
-            errors.append({"code": "unsupported_logsource", "message": f"Unsupported logsource {product}/{category}"})
+            errors.append(
+                {
+                    "code": "unsupported_logsource",
+                    "message": f"Unsupported logsource {product}/{category}",
+                }
+            )
 
         tags = {tag.lower() for tag in candidate.tags}
         for technique_id in required_techniques:
             if f"attack.{technique_id.lower()}" not in tags and technique_id.lower() not in tags:
-                errors.append({"code": "attack_tag_missing", "message": f"Missing ATT&CK tag {technique_id}"})
+                errors.append(
+                    {"code": "attack_tag_missing", "message": f"Missing ATT&CK tag {technique_id}"}
+                )
 
         candidate_fields = selection_fields(candidate)
         unsupported = sorted(field for field in candidate_fields if field not in SUPPORTED_FIELDS)
         for field in unsupported:
-            warnings.append({"code": "unsupported_field", "message": f"Field {field} is not in the configured field inventory"})
+            warnings.append(
+                {
+                    "code": "unsupported_field",
+                    "message": f"Field {field} is not in the configured field inventory",
+                }
+            )
         if telemetry_fields:
-            missing_telemetry = sorted(field for field in candidate_fields if field.lower() not in {f.lower() for f in telemetry_fields})
+            missing_telemetry = sorted(
+                field
+                for field in candidate_fields
+                if field.lower() not in {f.lower() for f in telemetry_fields}
+            )
             for field in missing_telemetry:
-                warnings.append({"code": "telemetry_field_not_declared", "message": f"Field {field} is not present in available telemetry requirements"})
+                warnings.append(
+                    {
+                        "code": "telemetry_field_not_declared",
+                        "message": f"Field {field} is not present in available telemetry requirements",
+                    }
+                )
 
         yaml_text = self.to_yaml(candidate)
         compiled_query: str | None = None
@@ -73,12 +106,12 @@ class SigmaValidationService:
             collection = SigmaCollection.from_yaml(yaml_text)
             compiled = self.compile(collection)
             compiled_query = "\n".join(compiled)
-        except Exception as exc:
+        except (SigmaError, ValueError) as exc:
             compiler_error = str(exc)
             errors.append({"code": "pysigma_compile_failed", "message": compiler_error})
 
         quality = self.score(candidate, errors, warnings)
-        duration_ms = int((datetime.utcnow() - started).total_seconds() * 1000)
+        duration_ms = int((datetime.now(UTC) - started).total_seconds() * 1000)
         return {
             "valid": not errors and quality >= get_settings().quality_threshold,
             "repairable": True,
@@ -100,9 +133,10 @@ class SigmaValidationService:
     def compile(self, collection: SigmaCollection) -> list[str]:
         if get_settings().sigma_target != "splunk":
             raise ValueError(f"Unsupported Sigma target {get_settings().sigma_target}")
-        from sigma.backends.splunk import SplunkBackend
 
-        return SplunkBackend().convert(collection)
+        backend_module = import_module("sigma.backends.splunk")
+        backend_cls = cast(Any, backend_module).SplunkBackend
+        return cast(list[str], backend_cls().convert(collection))
 
     def health_probe(self) -> dict[str, Any]:
         candidate = {
@@ -115,9 +149,18 @@ class SigmaValidationService:
             "level": "low",
         }
         result = self.validate(candidate, ["T1059"], ["Image"])
-        return {"status": "available" if result["valid"] else "unhealthy", "details": result["compiled_outputs"] | {"errors": result["errors"], "warnings": result["warnings"]}}
+        return {
+            "status": "available" if result["valid"] else "unhealthy",
+            "details": result["compiled_outputs"]
+            | {"errors": result["errors"], "warnings": result["warnings"]},
+        }
 
-    def score(self, candidate: SigmaCandidate, errors: list[dict[str, str]], warnings: list[dict[str, str]]) -> float:
+    def score(
+        self,
+        candidate: SigmaCandidate,
+        errors: list[dict[str, str]],
+        warnings: list[dict[str, str]],
+    ) -> float:
         score = 100.0
         score -= len(errors) * 35
         score -= len(warnings) * 5
@@ -141,13 +184,20 @@ def selection_fields(candidate: SigmaCandidate) -> set[str]:
 
 
 def invalid(code: str, message: str, started: datetime) -> dict[str, Any]:
+    duration_ms = int((datetime.now(UTC) - started).total_seconds() * 1000)
     return {
         "valid": False,
         "repairable": True,
         "candidate": None,
         "errors": [{"code": code, "message": message}],
         "warnings": [],
-        "compiled_outputs": {"target": get_settings().sigma_target, "backend": "splunk", "query": None, "compiler_errors": [message], "validation_duration_ms": int((datetime.utcnow() - started).total_seconds() * 1000)},
+        "compiled_outputs": {
+            "target": get_settings().sigma_target,
+            "backend": "splunk",
+            "query": None,
+            "compiler_errors": [message],
+            "validation_duration_ms": duration_ms,
+        },
         "quality_score": 0.0,
     }
 

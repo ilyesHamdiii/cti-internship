@@ -12,7 +12,6 @@ from app.db.session import SessionLocal
 from app.models.models import CtiEvent, GraphRun, Workflow
 from app.services.misp import MispPollingService
 
-
 SCENARIOS = {
     "powershell": "PowerShell downloads and executes remote content with encoded command arguments.",
     "wmi": "wmic process call create calc.exe on a remote Windows host.",
@@ -35,12 +34,28 @@ def main() -> None:
             "threat_level_id": "2",
             "analysis": "0",
             "published": False,
-            "Attribute": [{"type": "text", "category": "External analysis", "to_ids": False, "value": value, "comment": marker}],
+            "Attribute": [
+                {
+                    "type": "text",
+                    "category": "External analysis",
+                    "to_ids": False,
+                    "value": value,
+                    "comment": marker,
+                }
+            ],
         }
     }
-    headers = {"Authorization": settings.misp_api_key.get_secret_value(), "Accept": "application/json", "Content-Type": "application/json"}
-    with httpx.Client(verify=settings.misp_verify_tls, timeout=30.0, follow_redirects=True) as client:
-        response = client.post(f"{settings.misp_url.rstrip('/')}/events/add", headers=headers, json=payload)
+    headers = {
+        "Authorization": settings.misp_api_key.get_secret_value(),
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    }
+    with httpx.Client(
+        verify=settings.misp_verify_tls, timeout=30.0, follow_redirects=True
+    ) as client:
+        response = client.post(
+            f"{settings.misp_url.rstrip('/')}/events/add", headers=headers, json=payload
+        )
         response.raise_for_status()
         created = response.json()
     print(f"scenario={scenario}")
@@ -56,9 +71,25 @@ def main() -> None:
     while time.time() < deadline:
         db = SessionLocal()
         try:
-            event = db.scalars(select(CtiEvent).where(CtiEvent.title.contains(marker)).order_by(CtiEvent.received_at.desc())).first()
-            workflow = db.scalar(select(Workflow).where(Workflow.cti_event_id == event.id)) if event else None
-            graph_run = db.scalars(select(GraphRun).where(GraphRun.workflow_id == workflow.id).order_by(GraphRun.created_at.desc())).first() if workflow else None
+            event = db.scalars(
+                select(CtiEvent)
+                .where(CtiEvent.title.contains(marker))
+                .order_by(CtiEvent.received_at.desc())
+            ).first()
+            workflow = (
+                db.scalar(select(Workflow).where(Workflow.cti_event_id == event.id))
+                if event
+                else None
+            )
+            graph_run = (
+                db.scalars(
+                    select(GraphRun)
+                    .where(GraphRun.workflow_id == workflow.id)
+                    .order_by(GraphRun.created_at.desc())
+                ).first()
+                if workflow
+                else None
+            )
             if event and workflow and graph_run and graph_run.status != "running":
                 break
         finally:
