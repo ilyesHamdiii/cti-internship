@@ -72,6 +72,9 @@ jobs:
       - name: Wait for platform and MISP
         run: bash scripts/ci/wait-for-stack.sh backend postgres redis nginx frontend worker scheduler misp misp-db misp-valkey misp-modules
 
+      - name: Prepare MISP API key
+        run: bash scripts/ci/prepare-misp-auth-key.sh
+
       - name: Seed demo data
         run: |
           docker compose exec -T backend python -m app.scripts.bootstrap_demo
