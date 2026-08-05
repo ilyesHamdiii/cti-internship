@@ -34,9 +34,6 @@ test = [
   "mypy>=1.10.0"
 ]
 
-[tool.setuptools]
-packages = ["app"]
-
 [tool.pytest.ini_options]
 testpaths = ["../tests/backend"]
 pythonpath = ["."]
