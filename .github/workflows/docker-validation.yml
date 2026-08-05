@@ -27,8 +27,24 @@ jobs:
       - name: Docker Compose build
         run: docker compose build
 
+      - name: Start database dependencies
+        run: docker compose up -d postgres redis
+
+      - name: Wait for database dependencies
+        run: bash scripts/ci/wait-for-stack.sh postgres redis
+
+      - name: Verify backend Alembic paths
+        run: |
+          docker compose run --rm -e PYTHONPATH=/app backend bash -lc \
+            "test -f /app/alembic.ini && test -f /app/alembic/env.py && test -d /app/app"
+
+      - name: Apply fresh database migration baseline
+        run: |
+          docker compose run --rm -e PYTHONPATH=/app backend bash -lc \
+            "alembic upgrade 0001_initial && alembic stamp head"
+
       - name: Docker Compose up
-        run: docker compose up -d
+        run: docker compose up -d backend worker scheduler frontend nginx
 
       - name: Wait for healthy stack
         run: bash scripts/ci/wait-for-stack.sh backend postgres redis nginx frontend worker scheduler
@@ -38,6 +54,13 @@ jobs:
 
       - name: Frontend via nginx
         run: curl -fsS http://localhost:8080 >/tmp/frontend.html
+
+      - name: Docker diagnostics
+        if: always()
+        run: |
+          docker compose ps -a
+          docker compose logs --no-color --tail=500 backend
+          docker compose logs --no-color --tail=300 postgres
 
       - name: Collect logs on failure
         if: failure()
