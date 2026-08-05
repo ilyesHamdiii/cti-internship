@@ -16,8 +16,18 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("attack_mappings", sa.Column("attack_version", sa.String(length=50), nullable=True))
-    op.add_column("attack_mappings", sa.Column("verification_details", postgresql.JSONB(astext_type=sa.Text()), nullable=True))
+    columns = {
+        column["name"] for column in sa.inspect(op.get_bind()).get_columns("attack_mappings")
+    }
+    if "attack_version" not in columns:
+        op.add_column(
+            "attack_mappings", sa.Column("attack_version", sa.String(length=50), nullable=True)
+        )
+    if "verification_details" not in columns:
+        op.add_column(
+            "attack_mappings",
+            sa.Column("verification_details", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+        )
 
 
 def downgrade() -> None:

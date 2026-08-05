@@ -15,7 +15,16 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("ai_interactions", sa.Column("idempotency_key", sa.String(length=128), nullable=True))
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    ai_interaction_columns = {
+        column["name"] for column in inspector.get_columns("ai_interactions")
+    }
+    if "idempotency_key" not in ai_interaction_columns:
+        op.add_column(
+            "ai_interactions",
+            sa.Column("idempotency_key", sa.String(length=128), nullable=True),
+        )
     op.execute(
         """
         delete from review_actions
@@ -46,23 +55,47 @@ def upgrade() -> None:
         )
         """
     )
-    op.create_unique_constraint("uq_ai_interaction_idempotency_key", "ai_interactions", ["idempotency_key"])
-    op.create_unique_constraint("uq_review_action_revision_action", "review_actions", ["proposal_revision_id", "action"])
-    op.create_unique_constraint("uq_deployment_artifact_revision_type", "deployment_artifacts", ["proposal_revision_id", "artifact_type"])
-    op.create_index(
-        "uq_running_graph_operation",
-        "graph_runs",
-        ["workflow_id", sa.text("coalesce(resume_from_node, 'initial')")],
-        unique=True,
-        postgresql_where=sa.text("status = 'running'"),
-    )
-    op.create_index(
-        "uq_active_generated_detection_revision",
-        "detection_catalog",
-        [sa.text("(normalized_logic->>'proposal_revision_id')")],
-        unique=True,
-        postgresql_where=sa.text("source = 'generated' and status = 'active' and normalized_logic ? 'proposal_revision_id'"),
-    )
+    unique_constraints = {
+        table: {constraint["name"] for constraint in inspector.get_unique_constraints(table)}
+        for table in ["ai_interactions", "review_actions", "deployment_artifacts"]
+    }
+    if "uq_ai_interaction_idempotency_key" not in unique_constraints["ai_interactions"]:
+        op.create_unique_constraint(
+            "uq_ai_interaction_idempotency_key", "ai_interactions", ["idempotency_key"]
+        )
+    if "uq_review_action_revision_action" not in unique_constraints["review_actions"]:
+        op.create_unique_constraint(
+            "uq_review_action_revision_action",
+            "review_actions",
+            ["proposal_revision_id", "action"],
+        )
+    if "uq_deployment_artifact_revision_type" not in unique_constraints["deployment_artifacts"]:
+        op.create_unique_constraint(
+            "uq_deployment_artifact_revision_type",
+            "deployment_artifacts",
+            ["proposal_revision_id", "artifact_type"],
+        )
+    existing_indexes = {
+        index["name"]
+        for table in ["graph_runs", "detection_catalog"]
+        for index in inspector.get_indexes(table)
+    }
+    if "uq_running_graph_operation" not in existing_indexes:
+        op.create_index(
+            "uq_running_graph_operation",
+            "graph_runs",
+            ["workflow_id", sa.text("coalesce(resume_from_node, 'initial')")],
+            unique=True,
+            postgresql_where=sa.text("status = 'running'"),
+        )
+    if "uq_active_generated_detection_revision" not in existing_indexes:
+        op.create_index(
+            "uq_active_generated_detection_revision",
+            "detection_catalog",
+            [sa.text("(normalized_logic->>'proposal_revision_id')")],
+            unique=True,
+            postgresql_where=sa.text("source = 'generated' and status = 'active' and normalized_logic ? 'proposal_revision_id'"),
+        )
 
 
 def downgrade() -> None:
