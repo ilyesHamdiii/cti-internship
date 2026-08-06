@@ -54,7 +54,8 @@ def main() -> None:
         verify=settings.misp_verify_tls, timeout=30.0, follow_redirects=True
     ) as client:
         created = None
-        for attempt in range(1, 7):
+        max_attempts = 10
+        for attempt in range(1, max_attempts + 1):
             try:
                 response = client.post(
                     f"{settings.misp_url.rstrip('/')}/events/add", headers=headers, json=payload
@@ -67,9 +68,9 @@ def main() -> None:
                     status_code = exc.response.status_code
                     if status_code < 500 and status_code not in {401, 403, 429}:
                         raise
-                if attempt == 6:
+                if attempt == max_attempts:
                     raise
-                wait_seconds = attempt * 5
+                wait_seconds = min(attempt * 5, 30)
                 print(f"misp_event_create_retry attempt={attempt} wait_seconds={wait_seconds}")
                 time.sleep(wait_seconds)
         if created is None:
