@@ -59,7 +59,7 @@ def wait_for_items(path: str, token: str, minimum: int = 1, timeout: int = 120) 
 
 def test_fastapi_postgres_redis_and_health(token: str) -> None:
     health = request_json("/health")
-    assert health["status"] == "ok"
+    assert health["status"] == "healthy"
 
     dashboard = request_json("/dashboard/summary", token=token)
     assert {"pending_cti", "running_workflows", "proposal_count", "detection_count"} <= set(dashboard)
@@ -104,8 +104,9 @@ def test_watchers_trust_session_memory_proposals_review_and_catalog(token: str) 
     secondary_proposal_id = proposals["items"][1]["id"] if len(proposals["items"]) > 1 else None
     workspace = request_json(f"/proposals/{proposal_id}/workspace", token=token)
     assert "proposal" in workspace
-    assert "current_revision" in workspace
-    assert "validation" in workspace
+    assert "revisions" in workspace
+    assert "validation_results" in workspace
+    assert workspace["revisions"], "workspace should include proposal revision history"
 
     revisions = request_json(f"/proposals/{proposal_id}/revisions", token=token)
     assert revisions["items"]
