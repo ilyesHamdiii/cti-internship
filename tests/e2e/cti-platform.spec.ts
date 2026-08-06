@@ -9,7 +9,7 @@ async function login(page) {
   await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL(/dashboard/);
-  await expect(page.getByText("MISP ingestion")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Detection Engineering Demo" })).toBeVisible();
 }
 
 test("login, queues, AI workflow, reviews, catalog, and health pages render", async ({ page }) => {
