@@ -22,18 +22,6 @@ for attempt in $(seq 1 12); do
       set -euo pipefail
       cd /var/www/MISP/app
       Console/cake user change_authkey "$MISP_ADMIN_EMAIL" "$MISP_ADMIN_KEY"
-      curl -ksSf \
-        -H "Authorization: $MISP_ADMIN_KEY" \
-        -H "Accept: application/json" \
-        https://localhost/users/view/me >/tmp/misp-user.json
-      python3 - <<'"'"'PY'"'"'
-import json
-from pathlib import Path
-
-data = json.loads(Path("/tmp/misp-user.json").read_text())
-user = data.get("User", data.get("user", data))
-print(f"misp_auth_user={user.get('email', 'unknown')}")
-PY
     '; then
     exit 0
   fi
