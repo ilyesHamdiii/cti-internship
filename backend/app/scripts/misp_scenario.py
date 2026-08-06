@@ -53,11 +53,27 @@ def main() -> None:
     with httpx.Client(
         verify=settings.misp_verify_tls, timeout=30.0, follow_redirects=True
     ) as client:
-        response = client.post(
-            f"{settings.misp_url.rstrip('/')}/events/add", headers=headers, json=payload
-        )
-        response.raise_for_status()
-        created = response.json()
+        created = None
+        for attempt in range(1, 7):
+            try:
+                response = client.post(
+                    f"{settings.misp_url.rstrip('/')}/events/add", headers=headers, json=payload
+                )
+                response.raise_for_status()
+                created = response.json()
+                break
+            except (httpx.RequestError, httpx.HTTPStatusError) as exc:
+                if isinstance(exc, httpx.HTTPStatusError):
+                    status_code = exc.response.status_code
+                    if status_code < 500 and status_code not in {401, 403, 429}:
+                        raise
+                if attempt == 6:
+                    raise
+                wait_seconds = attempt * 5
+                print(f"misp_event_create_retry attempt={attempt} wait_seconds={wait_seconds}")
+                time.sleep(wait_seconds)
+        if created is None:
+            raise RuntimeError("failed to create MISP event")
     print(f"scenario={scenario}")
     print(f"marker={marker}")
     print(f"created_misp_event_id={created.get('Event', created).get('id')}")
