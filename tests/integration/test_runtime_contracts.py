@@ -12,6 +12,17 @@ import pytest
 BASE_URL = os.getenv("E2E_BASE_URL", "http://localhost:8080").rstrip("/")
 ADMIN_EMAIL = os.getenv("E2E_ADMIN_EMAIL", "admin@example.com")
 ADMIN_PASSWORD = os.getenv("E2E_ADMIN_PASSWORD", "ChangeMe123!")
+DASHBOARD_NUMERIC_FIELDS = {
+    "pending_cti",
+    "running_graphs",
+    "queued_reviews",
+    "coverage_percent",
+    "visibility_percent",
+    "average_confidence",
+    "average_cost",
+    "average_runtime_ms",
+}
+DASHBOARD_BASELINE_FIELDS = DASHBOARD_NUMERIC_FIELDS | {"generated_at"}
 
 
 pytestmark = pytest.mark.skipif(
@@ -62,7 +73,9 @@ def test_fastapi_postgres_redis_and_health(token: str) -> None:
     assert health["status"] == "healthy"
 
     dashboard = request_json("/dashboard/summary", token=token)
-    assert {"pending_cti", "running_workflows", "proposal_count", "detection_count"} <= set(dashboard)
+    assert DASHBOARD_BASELINE_FIELDS <= set(dashboard)
+    for field in DASHBOARD_NUMERIC_FIELDS:
+        assert isinstance(dashboard[field], int | float), f"{field} should be numeric"
 
     system_health = request_json("/system-health", token=token)
     components = {item.get("component") for item in system_health["items"]}
