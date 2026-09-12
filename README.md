@@ -1,84 +1,113 @@
 # CTI Detection Engineering Platform
 
-A production-style demonstration platform that turns MISP CTI into reviewed Sigma detections.
+This repository contains an AI-assisted CTI detection engineering platform for a local SOC workflow. The project ingests MISP CTI, normalizes it, extracts behaviors, verifies ATT&CK mappings, checks telemetry and coverage, generates Sigma candidates with bounded AI support, validates them with deterministic services, and requires human analyst approval before a detection is cataloged.
 
-The system is intentionally review-gated. AI or deterministic fixture output can draft and repair Sigma candidates, but pySigma validation, duplicate analysis, policy decisions, and analyst approval control what reaches the Detection Catalog.
+## Supervisor handoff package
 
-## What This Demonstrates
+The repository now includes:
 
-- Real MISP API ingestion, not direct database insertion.
-- LangGraph workflow orchestration with persisted node audit records.
-- Deterministic coverage, telemetry, ATT&CK, duplicate, and policy gates.
-- AI provider abstraction with honest fixture mode for repeatable demos.
-- pySigma compilation to Splunk SPL.
-- Analyst review, request changes, approval, deployment artifact, and catalog publication lifecycle.
+- [docs/AI-Assisted_CTI_Detection_Platform_Technical_Documentation.md](docs/AI-Assisted_CTI_Detection_Platform_Technical_Documentation.md)
+- [docs/AI-Assisted_CTI_Detection_Platform_Technical_Documentation.pdf](docs/AI-Assisted_CTI_Detection_Platform_Technical_Documentation.pdf)
+- [docs/SOURCE_CODE_GUIDE.md](docs/SOURCE_CODE_GUIDE.md)
+- [docs/RUNNING_THE_PROJECT.md](docs/RUNNING_THE_PROJECT.md)
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- [docs/API.md](docs/API.md)
+- [docs/DATABASE.md](docs/DATABASE.md)
+- [docs/AI_PIPELINE.md](docs/AI_PIPELINE.md)
+- [docs/DETECTION_ENGINEERING.md](docs/DETECTION_ENGINEERING.md)
+- [docs/DEVSECOPS_PIPELINE.md](docs/DEVSECOPS_PIPELINE.md)
+- [docs/MISP_INTEGRATION.md](docs/MISP_INTEGRATION.md)
+- [docs/SECURITY_AND_LIMITATIONS.md](docs/SECURITY_AND_LIMITATIONS.md)
 
-## Local Start
+## What this demonstrates
 
-1. Copy `.env.example` to `.env`.
-2. Adjust secrets.
-3. Run database migrations.
-4. Start the stack:
+- Real MISP API ingestion and normalization
+- LangGraph workflow orchestration with persisted execution state
+- Deterministic ATT&CK verification, telemetry checks, coverage analysis, duplicate detection, and policy gating
+- AI provider abstraction with fixture mode for demos and CI
+- pySigma compilation to Splunk SPL
+- Human review workflow before catalog publication
+
+## Local start
+
+1. Copy the sample environment file:
+
+```bash
+cp .env.example .env
+```
+
+2. Adjust secrets and local values in `.env`.
+3. Start the base stack:
 
 ```bash
 docker compose up --build
 ```
 
-The platform UI is available at `http://localhost:8080`.
-
-## Default Local Login
-
-The backend seeds a local admin from environment variables:
-
-- `CTI_SEEDED_ADMIN_EMAIL`
-- `CTI_SEEDED_ADMIN_PASSWORD`
-
-Change these before using non-local environments.
-
-## Testing
-
-```bash
-make backend-test
-make backend-lint
-make compose-config
-```
-
-## Local Demo Data
-
-After the stack is running and migrations have been applied:
-
-```bash
-make demo
-```
-
-This seeds baseline reference data and creates repeatable demonstration state. For MISP-backed tests, use the scenario helpers documented in `docs/MISP_INTEGRATION.md`.
-
-## Official Local MISP
-
-Start the platform with the official MISP Docker deployment:
+4. If MISP is required, start the MISP profile:
 
 ```bash
 docker compose --profile misp up -d --build
 ```
 
-MISP is available at `https://localhost:8443`. See `docs/MISP_INTEGRATION.md`
-for login, API key setup, event creation, scheduler polling, and API-only E2E
-verification.
+The main frontend is exposed at:
 
-## Architecture
+```text
+http://localhost:8080
+```
 
-See `docs/ARCHITECTURE.md`.
+## Default local login
 
-The bounded AI reasoning loop, watchers, confidence scoring, trust scoring, session memory, and visual AI workflow pages are documented in `docs/AI_REASONING_ARCHITECTURE.md`.
+The backend seeds a local admin account from environment variables:
 
-For node-and-arrow diagrams of how the AI consumes CTI, reasons, checks itself with watchers, repairs failed candidates, and waits for analyst approval, see `docs/AI_WORKFLOW_DIAGRAM.md`.
+- `CTI_SEEDED_ADMIN_EMAIL`
+- `CTI_SEEDED_ADMIN_PASSWORD`
 
-## Demo Readiness And Limitations
+The auth endpoint is:
 
-See `docs/FINAL_QUALITY_AUDIT.md` for the current quality scorecard, known limitations, and production-readiness assessment.
+```text
+POST /api/v1/auth/login
+```
 
-For the complete repository-derived engineering reference intended to support an academic internship report, see `docs/COMPLETE_TECHNICAL_ENGINEERING_REPORT.md`.
+## Exact project commands
 
-For the DevSecOps pipeline, GitHub Actions quality gates, security scans, integration/E2E strategy, and Dev -> Staging -> Production workflow, see `docs/DEVSECOPS_PIPELINE.md`.
+Run the backend script tests:
 
-## CI validation
+```bash
+cd backend && pytest ../scripts/backend -q
+```
+
+Run the migration inside the app container:
+
+```bash
+docker compose exec backend sh -lc "PYTHONPATH=/app alembic upgrade head"
+```
+
+Run the standard compose stack:
+
+```bash
+docker compose up --build
+```
+
+Run the MISP-enabled stack:
+
+```bash
+docker compose --profile misp up -d --build
+```
+
+## Project status
+
+This is a working local engineering prototype with documented deterministic controls and review gates. It is not a production-hardened enterprise SOC platform. See [docs/SECURITY_AND_LIMITATIONS.md](docs/SECURITY_AND_LIMITATIONS.md) for the current limitations and hardening requirements.
+
+## Documentation index
+
+For the complete handoff, start here:
+
+- [docs/AI-Assisted_CTI_Detection_Platform_Technical_Documentation.md](docs/AI-Assisted_CTI_Detection_Platform_Technical_Documentation.md)
+- [docs/AI-Assisted_CTI_Detection_Platform_Technical_Documentation.pdf](docs/AI-Assisted_CTI_Detection_Platform_Technical_Documentation.pdf)
+- [docs/RUNNING_THE_PROJECT.md](docs/RUNNING_THE_PROJECT.md)
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- [docs/API.md](docs/API.md)
+- [docs/DATABASE.md](docs/DATABASE.md)
+- [docs/AI_PIPELINE.md](docs/AI_PIPELINE.md)
+- [docs/DETECTION_ENGINEERING.md](docs/DETECTION_ENGINEERING.md)
+- [docs/DEVSECOPS_PIPELINE.md](docs/DEVSECOPS_PIPELINE.md)
