@@ -1,0 +1,68 @@
+\chapter*{Annexe 1}
+\addcontentsline{toc}{chapter}{Annexe 1, Référentiel technique de la plateforme}
+
+\section*{Principales technologies}
+
+\begin{longtable}{|p{0.25\textwidth}|p{0.2\textwidth}|p{0.45\textwidth}|}
+\hline
+\rowcolor[gray]{0.8}\textbf{Technologie} & \textbf{Version} & \textbf{Rôle} \\
+\hline
+Python & $\geq$ 3.11 & Exécution du backend et des workers \\
+\hline
+FastAPI / Uvicorn & $\geq$ 0.111 / $\geq$ 0.30 & API REST et serveur ASGI \\
+\hline
+Pydantic & $\geq$ 2.7 & Validation des schémas et configuration \\
+\hline
+SQLAlchemy / Alembic & $\geq$ 2.0.30 / $\geq$ 1.13.1 & ORM et migrations \\
+\hline
+PostgreSQL & 16-alpine & Source de vérité relationnelle \\
+\hline
+Redis & 7-alpine & Courtier et backend de résultats Celery \\
+\hline
+Celery & $\geq$ 5.4 & Tâches asynchrones et planification \\
+\hline
+LangGraph & $\geq$ 0.2 & Orchestration du workflow \\
+\hline
+PyMISP & $\geq$ 2.4.190 & Accès à l'API MISP \\
+\hline
+sigma-cli / pySigma Splunk & $\geq$ 1.0.4 / $\geq$ 2.1.0 & Validation et compilation Sigma \\
+\hline
+Next.js / React & 14.2.5 / 18.3.1 & Interface web \\
+\hline
+TypeScript / TailwindCSS & 5.4.5 / 3.4.4 & Typage et styles frontend \\
+\hline
+Nginx & 1.27-alpine & Reverse proxy \\
+\hline
+MISP / MariaDB / Valkey & images officielles / 10.11 / 7.2 & Source CTI et dépendances MISP \\
+\hline
+\end{longtable}
+
+\section*{Principaux points d'API}
+
+\begin{itemize}[leftmargin=1.2cm]
+    \item Authentification : \texttt{POST /auth/login}, \texttt{POST /auth/refresh}, \texttt{GET /auth/me}.
+    \item MISP : consultation par \texttt{GET /misp/events} et \texttt{GET /misp/events/\{id\}} ; ingestion par \texttt{POST /misp/events/\{id\}/ingest} et \texttt{POST /misp/events/ingest-all-new}.
+    \item CTI : \texttt{GET /cti-events}, consultation, lancement et retraitement d'un workflow.
+    \item Graphe et IA : consultation des exécutions, chronologies, événements, sessions, révisions, workflow et consommation.
+    \item Revue : consultation des propositions et révisions, approbation, demande de modifications et rejet.
+    \item Catalogue : consultation, import et téléchargement des artifacts de déploiement.
+    \item Référentiels : télémétrie, couverture ATT\&CK, décisions de politique, paramètres et santé.
+\end{itemize}
+
+\section*{Glossaire}
+
+\begin{description}[leftmargin=3.5cm,style=nextline]
+    \item[CTI] Renseignement sur les cybermenaces décrivant des indicateurs, comportements et contextes adverses.
+    \item[MISP] Plateforme de partage et de gestion d'événements CTI.
+    \item[IOC] Observable technique tel qu'une adresse IP, un domaine, une empreinte ou un processus.
+    \item[MITRE ATT\&CK] Base de connaissances des tactiques et techniques adverses.
+    \item[Sigma] Format générique de règles de détection.
+    \item[pySigma] Outils Python de lecture, validation et compilation de règles Sigma.
+    \item[Watcher] Contrôle déterministe appliqué à une sortie IA ou à un candidat.
+    \item[Confiance] Score combinant la confiance IA et plusieurs facteurs déterministes.
+    \item[Fiabilité] Score de contrôle centré sur la validation, les avertissements et la sécurité.
+    \item[Proposition] Candidat de détection soumis à la revue d'un analyste.
+    \item[Révision] Version immuable d'un candidat et de ses preuves de validation.
+    \item[DAST / SAST] Tests dynamiques et analyses statiques de sécurité.
+    \item[CI/CD] Intégration continue et livraison ou déploiement continu.
+\end{description}

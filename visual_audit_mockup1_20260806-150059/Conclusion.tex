@@ -1,0 +1,18 @@
+\chapter*{Conclusion Générale}
+\addcontentsline{toc}{chapter}{Conclusion Générale}
+
+Ce stage d'un mois réalisé au sein de Forvis Mazars Group avait pour objectif de contribuer à une plateforme d'ingénierie de détection CTI assistée par intelligence artificielle. Le besoin initial provenait du nombre d'étapes nécessaires pour transformer un événement MISP en règle exploitable : normalisation, compréhension du comportement, association MITRE ATT\&CK, vérification de la couverture et de la télémétrie, génération Sigma, compilation, contrôle, revue et publication.
+
+La solution étudiée met en œuvre une architecture complète associant FastAPI, Next.js, PostgreSQL, Redis, Celery, LangGraph, MISP et Docker. Le graphe orchestre les décisions, les services déterministes contrôlent les sorties et PostgreSQL conserve l'historique. L'intelligence artificielle intervient dans l'extraction, la génération et la réparation, mais ses réponses structurées sont systématiquement confrontées aux preuves et aux règles techniques.
+
+L'un des principaux apports du projet est la boucle de révision bornée. Chaque tentative est persistée, évaluée par des watchers et comparée aux seuils de confiance et de fiabilité. La mémoire de session évite de répéter les mêmes erreurs, tandis que les conditions d'arrêt empêchent une correction indéfinie. Cette approche rend le raisonnement observable sans conserver de chaîne de pensée cachée.
+
+Le second apport est la séparation explicite entre recommandation et autorisation. Une proposition ne peut rejoindre le catalogue qu'après une action humaine. Ainsi, un résultat généré n'est jamais assimilé à une décision opérationnelle. Cette règle est cohérente avec les exigences d'un SOC, où une détection doit être comprise, validée et attribuable.
+
+Cette séparation rejoint plus largement les principes de gouvernance et de maîtrise du risque : l'automatisation soutient la fonction de détection, mais les contrôles, responsabilités et preuves restent identifiables. Le projet ne cherche donc pas à maximiser l'autonomie de l'IA ; il cherche à déterminer à quelles conditions son assistance peut être intégrée dans un processus technique auditable.
+
+Les tests unitaires, d'intégration et de bout en bout, complétés par les workflows GitHub Actions de qualité, sécurité, validation Docker et déploiement, renforcent la reproductibilité du projet. Ils ne remplacent cependant pas une qualification de production. L'authentification locale, l'absence de déploiement SIEM réel, les contrôles de santé partiels et l'orientation Docker Compose constituent notamment des limites importantes.
+
+Ce stage m'a permis d'approfondir des compétences en architecture web, traitement asynchrone, modélisation de données, CTI, Sigma, orchestration par graphe, tests et DevSecOps. Il m'a également montré que l'intégration de l'intelligence artificielle dans un processus de cybersécurité doit être conçue autour de contrôles explicites et non autour de la seule qualité apparente des réponses.
+
+Les perspectives portent sur l'authentification d'entreprise, l'observabilité, la gestion des secrets, l'enrichissement de la télémétrie et d'ATT\&CK, l'extension des tests et l'intégration à de véritables SIEM. Ces évolutions permettraient de passer d'une plateforme locale de démonstration à une chaîne d'ingénierie de détection plus proche des contraintes d'exploitation.

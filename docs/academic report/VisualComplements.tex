@@ -1,0 +1,97 @@
+La figure \ref{fig:watcher-workflow} complète la section d'architecture en illustrant le contrôle par watchers, puis la figure \ref{fig:trust-confidence-workflow} montre la séparation entre confiance, trust et décision finale.
+
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{
+\begin{tikzpicture}[
+step/.style={draw, rounded corners, minimum width=2.5cm, minimum height=0.75cm, align=center, fill=blue!6},
+watch/.style={draw, rounded corners, minimum width=2.55cm, minimum height=0.75cm, align=center, fill=orange!9},
+gate/.style={draw, diamond, aspect=2, minimum width=2.55cm, align=center, fill=yellow!12},
+arrow/.style={-Latex, thick}
+]
+\node[step] (candidate) {Sigma candidate};
+\node[watch, right=0.8cm of candidate] (schema) {Schema};
+\node[watch, right=0.55cm of schema] (evidence) {Evidence};
+\node[watch, right=0.55cm of evidence] (attack) {ATT\&CK};
+\node[watch, below=0.7cm of schema] (sigma) {Sigma};
+\node[watch, right=0.55cm of sigma] (telemetry) {Telemetry};
+\node[watch, right=0.55cm of telemetry] (safety) {Safety};
+\node[watch, below=0.7cm of evidence] (dup) {Duplicate};
+\node[gate, right=1cm of attack] (decision) {Watcher\\result};
+\node[step, right=0.9cm of decision] (route) {Pass, warning,\\repair, terminal};
+\draw[arrow] (candidate) -- (schema);
+\draw[arrow] (schema) -- (evidence);
+\draw[arrow] (evidence) -- (attack);
+\draw[arrow] (sigma) -- (telemetry);
+\draw[arrow] (telemetry) -- (safety);
+\draw[arrow] (dup) -- (decision);
+\draw[arrow] (attack) -- (decision);
+\draw[arrow] (safety) -- (decision);
+\draw[arrow] (decision) -- (route);
+\end{tikzpicture}}
+\caption{Workflow d'évaluation par watchers}
+\label{fig:watcher-workflow}
+\end{figure}
+
+La figure \ref{fig:devsecops-pipeline} présente le pipeline DevSecOps mis en place autour de GitHub Actions, des contrôles qualité, des tests d'intégration et des analyses de sécurité.
+
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{
+\begin{tikzpicture}[
+step/.style={draw, rounded corners, minimum width=2.65cm, minimum height=0.78cm, align=center, fill=blue!6},
+gate/.style={draw, diamond, aspect=2.0, minimum width=2.5cm, align=center, fill=yellow!12},
+term/.style={draw, rounded corners, minimum width=2.8cm, minimum height=0.78cm, align=center, fill=green!8},
+arrow/.style={-Latex, thick}
+]
+\node[step] (pr) {Pull request};
+\node[step, right=0.75cm of pr] (backend) {Backend\\lint, mypy, tests};
+\node[step, right=0.75cm of backend] (frontend) {Frontend\\lint, typecheck, build};
+\node[step, right=0.75cm of frontend] (docker) {Docker\\build and health};
+\node[step, below=0.75cm of frontend] (integration) {Integration\\E2E and DAST};
+\node[step, right=0.75cm of integration] (security) {Static security\\Snyk / Sonar};
+\node[gate, right=0.75cm of docker] (gate) {Quality\\gate};
+\node[term, right=0.75cm of gate] (deploy) {Protected\\deployment};
+\draw[arrow] (pr) -- (backend);
+\draw[arrow] (backend) -- (frontend);
+\draw[arrow] (frontend) -- (docker);
+\draw[arrow] (frontend) -- (integration);
+\draw[arrow] (integration) -- (security);
+\draw[arrow] (docker) -- (gate);
+\draw[arrow] (security) -| (gate);
+\draw[arrow] (gate) -- (deploy);
+\end{tikzpicture}}
+\caption{Pipeline DevSecOps et GitHub Actions}
+\label{fig:devsecops-pipeline}
+\end{figure}
+
+La figure \ref{fig:trust-confidence-workflow} synthétise le rôle séparé de la confiance, du trust et de la décision finale.
+
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{
+\begin{tikzpicture}[
+step/.style={draw, rounded corners, minimum width=2.8cm, minimum height=0.78cm, align=center, fill=blue!6},
+gate/.style={draw, diamond, aspect=2.1, minimum width=2.65cm, align=center, fill=yellow!12},
+term/.style={draw, rounded corners, minimum width=2.85cm, minimum height=0.78cm, align=center, fill=green!8},
+bad/.style={draw, rounded corners, minimum width=2.85cm, minimum height=0.78cm, align=center, fill=red!8},
+arrow/.style={-Latex, thick}
+]
+\node[step] (inputs) {AI output\\+ deterministic evidence};
+\node[step, right=0.9cm of inputs] (confidence) {Confidence score};
+\node[step, below=0.7cm of confidence] (trust) {Trust score};
+\node[gate, right=1cm of confidence] (gate) {Blocking\\failure ?};
+\node[term, above right=0.65cm and 0.9cm of gate] (review) {Analyst review};
+\node[bad, right=0.9cm of gate] (repair) {Repair or\\terminal route};
+\node[bad, below right=0.65cm and 0.9cm of gate] (reject) {Reject on safety\\or invalid proof};
+\draw[arrow] (inputs) -- (confidence);
+\draw[arrow] (inputs) |- (trust);
+\draw[arrow] (confidence) -- (gate);
+\draw[arrow] (trust) -| (gate);
+\draw[arrow] (gate) -- node[above]{no, satisfied} (review);
+\draw[arrow] (gate) -- node[above]{repairable} (repair);
+\draw[arrow] (gate) -- node[right]{blocking} (reject);
+\end{tikzpicture}}
+\caption{Décision par confiance, trust et règles bloquantes}
+\label{fig:trust-confidence-workflow}
+\end{figure}

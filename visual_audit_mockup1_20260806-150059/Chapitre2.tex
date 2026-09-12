@@ -1,0 +1,165 @@
+\chapter{Conception et architecture de la plateforme}
+
+\section{Introduction}
+
+La conception repose sur une architecture distribuée locale associant une application web, des traitements asynchrones, une base de données et une instance MISP. Avant de détailler les composants, il convient de définir les principaux concepts employés dans le workflow.
+
+\section{Concepts techniques mobilisés}
+
+\subsection{CTI, MISP et comportements détectables}
+
+La CTI regroupe les connaissances utiles à la compréhension d'une menace : contexte, indicateurs, outils, cibles et modes opératoires. MISP est utilisé comme source d'événements structurés. Lors de l'ingestion, les données brutes sont conservées mais également transformées en un format interne homogène. Cette normalisation évite que les étapes suivantes dépendent directement de toutes les variantes du format d'origine.
+
+Dans un SOC, ces informations n'ont de valeur opérationnelle que si elles peuvent orienter une investigation, enrichir une alerte ou conduire à une logique exécutée par un SIEM. L'ingénierie de détection joue donc un rôle de traduction entre la connaissance de l'adversaire et les événements observables dans les journaux. Elle exige de comprendre les sources de logs, les conditions de déclenchement et les causes possibles de faux positifs. Le projet utilise MISP comme source réelle afin de traiter également les contraintes d'authentification, de disponibilité, de format et de redondance propres à une intégration CTI \cite{misp}.
+
+Le système ne se limite pas aux indicateurs isolés. Il cherche à extraire un comportement, c'est-à-dire une action adverse pouvant être observée au moyen d'une télémétrie. Chaque comportement conserve des références vers les attributs qui le justifient. Cette liaison est essentielle pour détecter les affirmations non ancrées dans l'événement source.
+
+Cette approche se rapproche du \textit{threat hunting}, qui formule des hypothèses comportementales et les confronte à la télémétrie. Un indicateur statique, comme une adresse IP, peut perdre rapidement sa valeur, tandis qu'un comportement tel que l'exécution d'une commande encodée peut rester pertinent dans plusieurs campagnes. La plateforme distingue donc les observables fournis par MISP des comportements utilisés pour construire la détection.
+
+\subsection{MITRE ATT\&CK}
+
+MITRE ATT\&CK fournit une base de connaissances organisée en tactiques et techniques décrivant les actions des adversaires \cite{mitreattack}. Une association ATT\&CK facilite la classification, la mesure de couverture et la communication entre analystes. Dans la plateforme, l'intelligence artificielle peut proposer une technique, mais la proposition est vérifiée contre une table locale de techniques de référence avant d'être acceptée.
+
+\subsection{Sigma et pySigma}
+
+Sigma est un format générique de règles de détection \cite{sigma}. Une règle décrit notamment son titre, son statut, ses références, la source de journaux, la logique de sélection, la condition et son niveau. Ce format permet de séparer l'intention de détection du langage propre à un SIEM. pySigma analyse la règle, vérifie sa structure et la compile. Le projet utilise le backend Splunk afin de produire une requête SPL à titre de validation technique. Cette compilation apporte un contrôle plus fort qu'une simple vérification du YAML : elle confirme que la structure peut être interprétée par la chaîne Sigma et traduite vers une cible concrète.
+
+\subsection{LangGraph et traitement asynchrone}
+
+LangGraph permet de représenter un workflow sous forme d'états, de nœuds et de transitions conditionnelles \cite{langgraph}. Contrairement à une suite d'appels linéaires, le graphe peut s'arrêter, boucler vers une correction, traiter plusieurs comportements ou reprendre après une action humaine. Il constitue l'unique moteur de routage du projet. Ce choix rend explicites les routes terminales et évite que des décisions importantes soient réparties dans une succession de fonctions difficile à auditer.
+
+Celery exécute ce graphe en arrière-plan. Redis sert de courtier de messages et de stockage des résultats Celery. Celery Beat déclenche périodiquement l'interrogation de MISP. Ce découplage évite que les requêtes HTTP restent ouvertes pendant les traitements longs.
+
+\section{Architecture générale}
+
+L'architecture comporte six ensembles principaux : le navigateur de l'analyste, le reverse proxy Nginx, le frontend Next.js, le backend FastAPI, les services asynchrones et les systèmes de données. PostgreSQL conserve l'état métier, tandis que MISP fournit les événements CTI. Redis assure la communication avec les workers.
+
+\figureplaceholder{Architecture générale de la plateforme}{fig:architecture-generale}
+
+Le frontend consomme les routes sous le préfixe \texttt{/api/v1}. Nginx expose l'ensemble sur le port local 8080. Le backend, le worker et le planificateur partagent l'accès à PostgreSQL et Redis. Ils rejoignent également le réseau interne MISP, contrairement au frontend. Cette topologie limite l'exposition directe de la plateforme de renseignement.
+
+Le choix des composants répond à un compromis entre réalisme et périmètre. FastAPI apporte la validation Pydantic et une séparation claire des routes et services. PostgreSQL convient aux relations fortes du domaine tout en permettant de conserver les structures CTI et IA en JSONB. Redis et Celery évitent de maintenir une requête HTTP pendant l'analyse complète. Next.js et TypeScript fournissent enfin une base typée pour une interface SOC réactive. Une architecture plus simple aurait réduit la durée de développement, mais aurait moins bien représenté les contraintes d'un traitement asynchrone et traçable.
+
+\subsection{Frontend}
+
+L'interface est développée avec Next.js 14, React 18, TypeScript et TailwindCSS. Elle stocke le jeton JWT dans le stockage local du navigateur et redirige l'utilisateur non authentifié vers la page de connexion. Un client commun centralise les opérations GET, POST, PATCH et le téléchargement d'artifacts.
+
+Les pages couvrent les principales activités : tableau de bord, boîte de réception MISP, événements CTI, sessions d'intelligence artificielle, visualisation du workflow, exécutions du graphe, propositions, file de revue, catalogue de détections, couverture ATT\&CK, télémétrie, santé du système, exécutions d'automatisation et paramètres. Des composants réutilisables présentent les métriques, badges d'état, tableaux, chronologies et blocs de code.
+
+\subsection{Backend}
+
+Le backend FastAPI sépare les routes, les schémas Pydantic, les modèles SQLAlchemy, les services et le graphe. L'authentification utilise des jetons JWT avec contrôle des rôles. Les routes exposent les fonctions MISP, CTI, graphe, intelligence artificielle, revue, catalogue, télémétrie, ATT\&CK, paramètres et santé.
+
+Les services déterministes constituent l'autorité pour la validation ATT\&CK, l'analyse de couverture, la visibilité de télémétrie, la politique de routage, la validation Sigma, la détection de doublons, la confiance et la création d'artifacts. Le fournisseur d'intelligence artificielle est isolé derrière une abstraction offrant un mode prédéfini et un mode connecté à DeepSeek.
+
+\subsection{MISP, Celery et planification}
+
+L'intégration MISP s'appuie sur des images Docker officielles : cœur MISP, modules MISP, MariaDB, Valkey et serveur SMTP. Les responsabilités sont réparties entre cinq services :
+\begin{itemize}[leftmargin=1.2cm]
+    \item \texttt{MispApiService} pour la communication avec l'API ;
+    \item \texttt{MispIngestionService} pour la normalisation et l'ingestion ;
+    \item \texttt{MispPollingService} pour l'interrogation périodique ;
+    \item \texttt{MispConnectivityService} pour le diagnostic ;
+    \item \texttt{MispIngestionScheduleService} pour la configuration du planning.
+\end{itemize}
+
+Deux tâches Celery sont exposées. \texttt{run\_graph} démarre ou reprend un workflow LangGraph. \texttt{poll\_misp} recherche périodiquement de nouveaux événements. L'état de consommation enregistre le déclencheur, la stratégie, les identifiants résolus, les dates et les causes d'échec ou d'omission.
+
+L'ingestion suit ainsi une séquence contrôlée : demande utilisateur ou planifiée, interrogation de MISP, résolution de l'identifiant, vérification d'idempotence, normalisation, création éventuelle de l'événement CTI et enregistrement du résultat. Dans une ingestion en lot, chaque événement reçoit son propre enregistrement de consommation. Une erreur isolée reste donc diagnostiquable sans rendre opaque le résultat du lot complet.
+
+\section{Architecture des données}
+
+PostgreSQL 16 représente la source de vérité. Les tables peuvent être regroupées en six domaines, présentés dans le tableau \ref{tab:domaines-donnees}.
+
+\begin{table}[htbp]
+\centering
+\caption{Principaux domaines du modèle de données}
+\label{tab:domaines-donnees}
+\begin{tabular}{|p{0.22\textwidth}|p{0.68\textwidth}|}
+\hline
+\rowcolor[gray]{0.8}\textbf{Domaine} & \textbf{Tables principales} \\
+\hline
+Identité et configuration & \texttt{users}, \texttt{settings}, \texttt{telemetry\_sources} \\
+\hline
+CTI et orchestration & \texttt{cti\_events}, \texttt{workflows}, \texttt{graph\_runs}, \texttt{graph\_node\_runs}, \texttt{cti\_consumption\_records} \\
+\hline
+Raisonnement IA & \texttt{ai\_interactions}, \texttt{ai\_reasoning\_sessions}, \texttt{ai\_reasoning\_revisions}, \texttt{ai\_watcher\_results}, \texttt{ai\_confidence\_events} \\
+\hline
+Analyse & \texttt{behaviors}, \texttt{attack\_techniques}, \texttt{attack\_mappings}, \texttt{coverage\_results}, \texttt{visibility\_results}, \texttt{policy\_decisions} \\
+\hline
+Revue & \texttt{proposals}, \texttt{proposal\_revisions}, \texttt{validation\_results}, \texttt{review\_actions} \\
+\hline
+Publication & \texttt{deployment\_artifacts}, \texttt{detection\_catalog}, \texttt{detection\_attack\_mappings} \\
+\hline
+\end{tabular}
+\end{table}
+
+Des contraintes d'unicité empêchent notamment la duplication d'un événement MISP, la création de plusieurs workflows pour le même événement ou la publication multiple du même artifact. Les révisions de propositions sont immuables et numérotées. Les exécutions du graphe et de chaque nœud conservent les entrées, sorties, durées et erreurs, ce qui fournit une piste d'audit détaillée.
+
+Le modèle combine des relations explicites et des contenus semi-structurés. Les clés étrangères relient les événements, workflows, comportements, propositions et validations, tandis que les colonnes JSONB conservent les événements MISP bruts, les sorties structurées de l'IA et les résultats détaillés des watchers. Cette combinaison évite de perdre l'information source sans renoncer aux contraintes relationnelles nécessaires au suivi du cycle de vie.
+
+\section{Workflow de raisonnement et de décision}
+
+\subsection{Étapes du graphe}
+
+Le graphe débute par \texttt{consume\_cti}, qui charge l'événement normalisé. Le nœud \texttt{extract\_behaviors} interroge ensuite le fournisseur d'intelligence artificielle et persiste les comportements. Des contrôles vérifient leur schéma, leurs preuves, la présence d'une proposition ATT\&CK, leur ancrage dans les observables et le respect du format structuré.
+
+Pour chaque comportement, \texttt{verify\_attack\_mapping} confirme les techniques proposées. \texttt{coverage\_analysis} recherche une couverture existante par empreinte et similarité. \texttt{visibility\_analysis} compare les champs requis avec les sources de télémétrie activées. \texttt{policy\_decision} applique alors une règle déterministe. Le traitement peut se terminer par les états « déjà couvert », « manque de visibilité » ou « preuves insuffisantes », ou poursuivre vers la génération.
+
+\texttt{generate\_candidate} demande une règle Sigma structurée. \texttt{validate\_candidate} applique les schémas Pydantic, les contrôles Sigma, la compilation pySigma, l'analyse de doublons, les watchers et les moteurs de score. Si le résultat est satisfaisant, \texttt{queue\_review} crée une proposition. Si une correction est possible, \texttt{repair\_candidate} produit une nouvelle révision et retourne vers la validation. Après revue humaine, \texttt{approved} dirige une approbation vers \texttt{deployment}, une demande de modification vers la réparation et un rejet vers l'état terminal correspondant.
+
+\figureplaceholder{Workflow de raisonnement de l'intelligence artificielle}{fig:workflow-ia}
+
+Lorsqu'un événement contient plusieurs comportements, le nœud \texttt{advance\_behavior} permet de passer au comportement suivant. Cette conception produit une proposition indépendante par comportement et évite de réunir des logiques hétérogènes dans une règle unique.
+
+\subsection{Révision bornée et mémoire de session}
+
+La correction n'est pas une boucle illimitée. Elle dépend de paramètres tels que le nombre maximal de révisions, le nombre maximal de réparations, le progrès minimal attendu ainsi que les cibles de confiance et de confiance déterministe. La boucle s'arrête en cas de satisfaction, d'épuisement des tentatives, d'absence de progrès significatif, de blocage de sécurité, de manque de preuve, de doublon ou d'erreur non réparable.
+
+Chaque passage crée une entrée dans \texttt{ai\_reasoning\_revisions} avec la révision parente, le candidat avant et après correction, les champs modifiés, les résultats de validation, les watchers, les scores, la recommandation et la raison d'arrêt. La mémoire de session contient une synthèse structurée des comportements traités, associations acceptées ou rejetées, historiques de réparation et validation, échecs des watchers, évolutions des scores, doublons, stratégies déjà essayées, champs de télémétrie et observables utilisés.
+
+Cette mémoire permet à une correction d'exploiter les erreurs précédentes sans enregistrer une chaîne de pensée cachée. Les invites interdisent explicitement cette dernière. Seuls les objets JSON, justifications synthétiques, résultats et candidats nécessaires à l'audit sont conservés.
+
+\section{Contrôles, confiance et approbation humaine}
+
+\subsection{Watchers}
+
+Les watchers sont des contrôles indépendants produisant les états \texttt{PASS}, \texttt{WARNING} ou \texttt{FAIL}. Pour un comportement, ils vérifient le schéma, les preuves, ATT\&CK, les hallucinations et la sûreté de la sortie. Pour un candidat, ils vérifient le schéma Sigma, la compilation, le niveau minimal de confiance, les doublons, la télémétrie, l'existence d'une logique de détection et l'absence d'instructions opérationnelles dangereuses. Leurs résultats sont persistés et influencent directement le routage.
+
+Ce mécanisme répond à une exigence d'explicabilité : l'utilisateur doit pouvoir distinguer une recommandation générative des facteurs vérifiables qui l'autorisent ou la bloquent. Les travaux sur l'intelligence artificielle explicable soulignent précisément la nécessité de rendre les résultats compréhensibles par les utilisateurs humains \cite{arrieta2020xai}. Dans la plateforme, cette exigence est traduite par des sorties structurées, des contrôles nommés et une justification persistée, plutôt que par l'enregistrement d'une chaîne de pensée interne.
+
+\subsection{Score de confiance}
+
+Le moteur de confiance au sens probabiliste combine les informations génératives et déterministes. Le score est défini par :
+
+\begin{equation}
+C = 0{,}25C_{IA} + 0{,}25V + 0{,}20W + 0{,}10T + 0{,}10K + 0{,}10D - P_r
+\end{equation}
+
+où $C_{IA}$ est la confiance annoncée par le modèle, $V$ le score de validation, $W$ le score des watchers, $T$ la télémétrie, $K$ la couverture, $D$ l'absence de doublon et $P_r$ la pénalité liée aux réparations. Ce score mesure la qualité apparente du candidat, mais n'autorise jamais sa publication.
+
+\subsection{Score de fiabilité déterministe}
+
+Le moteur de \textit{trust} met davantage l'accent sur les contrôles vérifiables :
+
+\begin{equation}
+F = 0{,}55V_d + 0{,}25C + 0{,}20(1-f) - 0{,}03n_a
+\end{equation}
+
+où $V_d$ représente la validation déterministe, $C$ le score précédent, $f$ un facteur lié au nombre d'échecs et $n_a$ le nombre d'avertissements. Une défaillance de sûreté impose un rejet et une validation échouée ne peut pas être compensée par une confiance élevée du modèle. Les recommandations possibles sont l'approbation, l'approbation avec avertissement, la revue nécessaire, la demande de changements ou le rejet.
+
+\subsection{Principe de contrôle humain}
+
+Une proposition satisfaisante est placée dans la file de revue. L'analyste consulte la règle, les preuves, la compilation, les scores, les avertissements et l'historique. Il peut approuver la révision courante, demander une nouvelle correction ou rejeter la proposition. Seule l'approbation reprend le graphe vers la création d'un paquet Sigma et d'une entrée dans le catalogue. Le terme « déploiement » désigne donc ici une publication locale contrôlée, et non une installation automatique dans un SIEM réel.
+
+\section{Déploiement conteneurisé}
+
+Docker Compose décrit PostgreSQL 16, Redis 7, le backend, le worker, le planificateur, le frontend et Nginx. Un profil ajoute MISP, MariaDB, Valkey, les modules et SMTP. Les volumes persistants conservent les données et les contrôles de santé vérifient la disponibilité des services. Alembic applique les migrations du schéma au démarrage contrôlé de l'environnement.
+
+Le profil MISP permet de lancer rapidement les seuls services applicatifs lorsque la source CTI n'est pas nécessaire, puis d'activer la pile complète pour les démonstrations et les tests d'intégration. Cette organisation limite le coût du cycle de développement tout en maintenant un scénario fondé sur une instance MISP réelle.
+
+La séparation des réseaux est un choix important : MISP possède un réseau interne et seuls le backend, le worker et le planificateur peuvent le joindre par le nom \texttt{https://misp}. L'utilisateur accède à la plateforme par Nginx sans exposition directe des services internes.
+
+\section{Conclusion}
+
+L'architecture associe une interface adaptée au SOC, une API structurée, un traitement asynchrone et un graphe persistant. Les contrôles déterministes entourent les appels génératifs et l'action humaine constitue la dernière barrière. Le chapitre suivant présente la mise en œuvre, la validation et les résultats de cette conception.
