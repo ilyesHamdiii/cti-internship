@@ -1,7 +1,8 @@
 import asyncio
 import hashlib
-from datetime import datetime
-from typing import Any, Callable
+from collections.abc import Callable
+from datetime import UTC, datetime
+from typing import Any, ClassVar, cast
 
 from fastapi.encoders import jsonable_encoder
 from langgraph.graph import END, START, StateGraph
@@ -28,8 +29,8 @@ from app.models.models import (
     CtiEvent,
     GraphNodeRun,
     GraphRun,
-    Proposal,
     PolicyDecision,
+    Proposal,
     ProposalRevision,
     ReviewAction,
     TelemetrySource,
@@ -45,13 +46,19 @@ from app.services.deployment import DeploymentService
 from app.services.duplicates import DuplicateDetectionService
 from app.services.fingerprinting import fingerprint_behavior
 from app.services.policy import decide_policy
-from app.services.reasoning import ConfidenceEngine, SatisfactionEngine, ReasoningService, TrustEngine, WatcherEngine
+from app.services.reasoning import (
+    ConfidenceEngine,
+    ReasoningService,
+    SatisfactionEngine,
+    TrustEngine,
+    WatcherEngine,
+)
 from app.services.sigma import SigmaValidationService
 from app.services.telemetry import TelemetryService
 
 
 class DetectionEngineeringGraph:
-    nodes = [
+    nodes: ClassVar[list[str]] = [
         "consume_cti",
         "extract_behaviors",
         "verify_attack_mapping",
@@ -78,7 +85,7 @@ class DetectionEngineeringGraph:
         self.compiled_graph = self._build_graph()
 
     def _build_graph(self) -> Any:
-        graph = StateGraph(dict)
+        graph: Any = StateGraph(dict)
         graph.add_node("entry", lambda state: state)
         for name, fn in [
             ("consume_cti", self.consume_cti),
@@ -102,9 +109,24 @@ class DetectionEngineeringGraph:
         ]:
             graph.add_node(name, self._langgraph_node(name, fn))
         graph.add_edge(START, "entry")
-        graph.add_conditional_edges("entry", self._route_entry, {"consume_cti": "consume_cti", "repair_candidate": "repair_candidate", "approved": "approved"})
+        graph.add_conditional_edges(
+            "entry",
+            self._route_entry,
+            {
+                "consume_cti": "consume_cti",
+                "repair_candidate": "repair_candidate",
+                "approved": "approved",
+            },
+        )
         graph.add_edge("consume_cti", "extract_behaviors")
-        graph.add_conditional_edges("extract_behaviors", self._route_after_extract, {"verify_attack_mapping": "verify_attack_mapping", "terminal_insufficient_evidence": "terminal_insufficient_evidence"})
+        graph.add_conditional_edges(
+            "extract_behaviors",
+            self._route_after_extract,
+            {
+                "verify_attack_mapping": "verify_attack_mapping",
+                "terminal_insufficient_evidence": "terminal_insufficient_evidence",
+            },
+        )
         graph.add_edge("verify_attack_mapping", "coverage_analysis")
         graph.add_edge("coverage_analysis", "visibility_analysis")
         graph.add_edge("visibility_analysis", "policy_decision")
@@ -122,23 +144,60 @@ class DetectionEngineeringGraph:
         graph.add_conditional_edges(
             "validate_candidate",
             self._route_validation,
-            {"valid": "queue_review", "repairable_invalid": "repair_candidate", "unrepairable_invalid": "terminal_failed"},
+            {
+                "valid": "queue_review",
+                "repairable_invalid": "repair_candidate",
+                "unrepairable_invalid": "terminal_failed",
+            },
         )
-        graph.add_conditional_edges("repair_candidate", self._route_repair, {"repaired": "validate_candidate", "attempts_exhausted": "terminal_failed"})
-        graph.add_conditional_edges("queue_review", self._route_next_behavior, {"advance_behavior": "advance_behavior", END: END})
-        graph.add_conditional_edges("terminal_covered", self._route_next_behavior, {"advance_behavior": "advance_behavior", END: END})
-        graph.add_conditional_edges("terminal_visibility_gap", self._route_next_behavior, {"advance_behavior": "advance_behavior", END: END})
-        graph.add_conditional_edges("terminal_insufficient_evidence", self._route_next_behavior, {"advance_behavior": "advance_behavior", END: END})
+        graph.add_conditional_edges(
+            "repair_candidate",
+            self._route_repair,
+            {"repaired": "validate_candidate", "attempts_exhausted": "terminal_failed"},
+        )
+        graph.add_conditional_edges(
+            "queue_review",
+            self._route_next_behavior,
+            {"advance_behavior": "advance_behavior", END: END},
+        )
+        graph.add_conditional_edges(
+            "terminal_covered",
+            self._route_next_behavior,
+            {"advance_behavior": "advance_behavior", END: END},
+        )
+        graph.add_conditional_edges(
+            "terminal_visibility_gap",
+            self._route_next_behavior,
+            {"advance_behavior": "advance_behavior", END: END},
+        )
+        graph.add_conditional_edges(
+            "terminal_insufficient_evidence",
+            self._route_next_behavior,
+            {"advance_behavior": "advance_behavior", END: END},
+        )
         graph.add_edge("terminal_failed", END)
-        graph.add_conditional_edges("approved", self._route_approved, {"deployment": "deployment", "terminal_rejected": "terminal_rejected", "repair_candidate": "repair_candidate", END: END})
+        graph.add_conditional_edges(
+            "approved",
+            self._route_approved,
+            {
+                "deployment": "deployment",
+                "terminal_rejected": "terminal_rejected",
+                "repair_candidate": "repair_candidate",
+                END: END,
+            },
+        )
         graph.add_edge("deployment", END)
         graph.add_edge("terminal_rejected", END)
         graph.add_edge("advance_behavior", "verify_attack_mapping")
         return graph.compile()
 
-    def _langgraph_node(self, name: str, fn: Callable[[dict[str, Any]], None]) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    def _langgraph_node(
+        self, name: str, fn: Callable[[dict[str, Any]], None]
+    ) -> Callable[[dict[str, Any]], dict[str, Any]]:
         def node(state: dict[str, Any]) -> dict[str, Any]:
             graph_run = self.db.get(GraphRun, state["graph_run_id"])
+            if graph_run is None:
+                raise ValueError("graph_run_not_found")
             self._run_node(graph_run, name, state, fn)
             return state
 
@@ -158,7 +217,7 @@ class DetectionEngineeringGraph:
             workflow_id=workflow_id,
             resume_from_node=resume_from_node,
             status=GraphRunStatus.running,
-            started_at=datetime.utcnow(),
+            started_at=datetime.now(UTC),
         )
         self.db.add(graph_run)
         workflow.status = WorkflowStatus.running
@@ -179,12 +238,22 @@ class DetectionEngineeringGraph:
             final_state = self.compiled_graph.invoke(state)
             state.update(final_state)
             graph_run.status = GraphRunStatus.succeeded
-            graph_run.finished_at = datetime.utcnow()
-            graph_run.duration_ms = int((graph_run.finished_at - graph_run.started_at).total_seconds() * 1000)
-            if resume_from_node == "approved" and state.get("analyst_action") == ReviewActionType.approve:
+            graph_run.finished_at = datetime.now(UTC)
+            if graph_run.started_at is None:
+                raise ValueError("graph_run_started_at_missing")
+            graph_run.duration_ms = int(
+                (graph_run.finished_at - graph_run.started_at).total_seconds() * 1000
+            )
+            if (
+                resume_from_node == "approved"
+                and state.get("analyst_action") == ReviewActionType.approve
+            ):
                 workflow.status = WorkflowStatus.deployed
                 termination_reason = "analyst_approved_deployed"
-            elif resume_from_node == "approved" and state.get("analyst_action") == ReviewActionType.reject:
+            elif (
+                resume_from_node == "approved"
+                and state.get("analyst_action") == ReviewActionType.reject
+            ):
                 workflow.status = WorkflowStatus.rejected
                 termination_reason = "analyst_rejected"
             elif state.get("terminal_status") == "rejected":
@@ -201,13 +270,15 @@ class DetectionEngineeringGraph:
                 termination_reason = state.get("reasoning_termination_reason") or "failed"
             else:
                 workflow.status = WorkflowStatus.waiting_review
-                termination_reason = state.get("reasoning_termination_reason") or "queued_for_human_review"
+                termination_reason = (
+                    state.get("reasoning_termination_reason") or "queued_for_human_review"
+                )
             self.reasoning.finish_session(graph_run.id, "completed", termination_reason)
             self.db.commit()
-        except Exception as exc:
+        except (KeyError, RuntimeError, TypeError, ValueError) as exc:
             graph_run.status = GraphRunStatus.failed
             graph_run.failure_reason = str(exc)
-            graph_run.finished_at = datetime.utcnow()
+            graph_run.finished_at = datetime.now(UTC)
             workflow.status = WorkflowStatus.failed
             workflow.terminal_reason = str(exc)
             self.reasoning.finish_session(graph_run.id, "failed", str(exc))
@@ -215,8 +286,14 @@ class DetectionEngineeringGraph:
             raise
         return graph_run
 
-    def _run_node(self, graph_run: GraphRun, name: str, state: dict[str, Any], fn: Callable[[dict[str, Any]], None]) -> None:
-        started = datetime.utcnow()
+    def _run_node(
+        self,
+        graph_run: GraphRun,
+        name: str,
+        state: dict[str, Any],
+        fn: Callable[[dict[str, Any]], None],
+    ) -> None:
+        started = datetime.now(UTC)
         node = GraphNodeRun(
             graph_run_id=graph_run.id,
             node_name=name,
@@ -234,17 +311,19 @@ class DetectionEngineeringGraph:
             fn(state)
             node.status = NodeStatus.succeeded
             node.output_snapshot = self._snapshot(state)
-        except Exception as exc:
+        except (KeyError, RuntimeError, TypeError, ValueError) as exc:
             node.status = NodeStatus.failed
             node.failure_reason = str(exc)
             raise
         finally:
-            node.finished_at = datetime.utcnow()
+            node.finished_at = datetime.now(UTC)
+            if node.started_at is None:
+                raise ValueError("graph_node_started_at_missing")
             node.duration_ms = int((node.finished_at - started).total_seconds() * 1000)
             self.db.commit()
 
     def _snapshot(self, state: dict[str, Any]) -> dict[str, Any]:
-        return jsonable_encoder(state)
+        return cast(dict[str, Any], jsonable_encoder(state))
 
     def _route_entry(self, state: dict[str, Any]) -> str:
         if state.get("resume_from_node") == "repair_candidate":
@@ -284,16 +363,29 @@ class DetectionEngineeringGraph:
             return "unrepairable_invalid"
         settings = get_settings()
         confidence_delta = float(validation.get("confidence_delta", 0.0) or 0.0)
-        if state.get("repair_attempts", 0) > 0 and confidence_delta < settings.reasoning_min_improvement_delta:
+        if (
+            state.get("repair_attempts", 0) > 0
+            and confidence_delta < settings.reasoning_min_improvement_delta
+        ):
             state["reasoning_termination_reason"] = "no_meaningful_improvement"
             return "unrepairable_invalid"
-        if (selected == "repair_candidate" or (not selected and not validation.get("valid"))) and validation.get("repairable") and state.get("repair_attempts", 0) < min(settings.max_repair_attempts, settings.reasoning_max_revisions):
+        if (
+            (selected == "repair_candidate" or (not selected and not validation.get("valid")))
+            and validation.get("repairable")
+            and state.get("repair_attempts", 0)
+            < min(settings.max_repair_attempts, settings.reasoning_max_revisions)
+        ):
             return "repairable_invalid"
         state["reasoning_termination_reason"] = "repair_limit_reached"
         return "unrepairable_invalid"
 
     def _route_repair(self, state: dict[str, Any]) -> str:
-        return "attempts_exhausted" if state.get("repair_attempts", 0) > min(get_settings().max_repair_attempts, get_settings().reasoning_max_revisions) else "repaired"
+        return (
+            "attempts_exhausted"
+            if state.get("repair_attempts", 0)
+            > min(get_settings().max_repair_attempts, get_settings().reasoning_max_revisions)
+            else "repaired"
+        )
 
     def _route_approved(self, state: dict[str, Any]) -> str:
         action = state.get("analyst_action")
@@ -312,7 +404,14 @@ class DetectionEngineeringGraph:
     def advance_behavior(self, state: dict[str, Any]) -> None:
         state["behavior_index"] = int(state.get("behavior_index", 0)) + 1
         state["behavior_id"] = state["behavior_ids"][state["behavior_index"]]
-        for key in ["candidate", "validation", "previous_validation", "policy_decision", "proposal_id", "repair_attempts"]:
+        for key in [
+            "candidate",
+            "validation",
+            "previous_validation",
+            "policy_decision",
+            "proposal_id",
+            "repair_attempts",
+        ]:
             state.pop(key, None)
 
     def terminal_covered(self, state: dict[str, Any]) -> None:
@@ -371,7 +470,10 @@ class DetectionEngineeringGraph:
                 break
             previous = self.db.scalars(
                 select(GraphNodeRun)
-                .where(GraphNodeRun.graph_run_id == revision.graph_run_id, GraphNodeRun.node_name == name)
+                .where(
+                    GraphNodeRun.graph_run_id == revision.graph_run_id,
+                    GraphNodeRun.node_name == name,
+                )
                 .order_by(GraphNodeRun.started_at.desc())
             ).first()
             inherited = GraphNodeRun(
@@ -379,10 +481,13 @@ class DetectionEngineeringGraph:
                 node_name=name,
                 previous_node=graph_run.current_node,
                 status=NodeStatus.skipped,
-                input_snapshot={"inherited_from_graph_run_id": revision.graph_run_id, "state": "inherited"},
+                input_snapshot={
+                    "inherited_from_graph_run_id": revision.graph_run_id,
+                    "state": "inherited",
+                },
                 output_snapshot=previous.output_snapshot if previous else {"state": "inherited"},
-                started_at=datetime.utcnow(),
-                finished_at=datetime.utcnow(),
+                started_at=datetime.now(UTC),
+                finished_at=datetime.now(UTC),
                 duration_ms=0,
             )
             graph_run.previous_node = graph_run.current_node
@@ -400,11 +505,17 @@ class DetectionEngineeringGraph:
     def extract_behaviors(self, state: dict[str, Any]) -> None:
         response, usage = asyncio.run(self.ai.analyze_cti(state["normalized_cti"]))
         response_payload = response.model_dump()
-        extraction_watchers = self.watchers.evaluate_behavior_extraction(state["normalized_cti"], response_payload)
-        self.reasoning.record_watchers(state["graph_run_id"], "extract_behaviors", extraction_watchers)
+        extraction_watchers = self.watchers.evaluate_behavior_extraction(
+            state["normalized_cti"], response_payload
+        )
+        self.reasoning.record_watchers(
+            state["graph_run_id"], "extract_behaviors", extraction_watchers
+        )
         behavior_ids: list[str] = []
         for candidate in response.behaviors:
-            if self._evidence_refs_valid(state["normalized_cti"], [ref.model_dump() for ref in candidate.evidence_refs]):
+            if self._evidence_refs_valid(
+                state["normalized_cti"], [ref.model_dump() for ref in candidate.evidence_refs]
+            ):
                 behavior_ids.append(self._persist_behavior(state, candidate))
         state["behavior_ids"] = behavior_ids
         if behavior_ids:
@@ -419,11 +530,21 @@ class DetectionEngineeringGraph:
             float(response.structured_justification.confidence),
             {"behavior_count": len(behavior_ids), "watchers": extraction_watchers},
         )
-        self._persist_ai_interaction(state, "extract_behaviors", response_payload, usage, response.structured_justification.model_dump())
+        self._persist_ai_interaction(
+            state,
+            "extract_behaviors",
+            response_payload,
+            usage,
+            response.structured_justification.model_dump(),
+        )
 
-    def _evidence_refs_valid(self, normalized_cti: dict[str, Any], refs: list[dict[str, Any]]) -> bool:
+    def _evidence_refs_valid(
+        self, normalized_cti: dict[str, Any], refs: list[dict[str, Any]]
+    ) -> bool:
         attributes = normalized_cti.get("attributes", [])
-        valid_refs = {f"attribute:{attr.get('id')}" for attr in attributes if isinstance(attr, dict)}
+        valid_refs = {
+            f"attribute:{attr.get('id')}" for attr in attributes if isinstance(attr, dict)
+        }
         valid_refs.update({f"attribute:{index}" for index, _ in enumerate(attributes, start=1)})
         return bool(refs) and all(ref.get("ref") in valid_refs for ref in refs)
 
@@ -453,7 +574,9 @@ class DetectionEngineeringGraph:
         return behavior.id
 
     def verify_attack_mapping(self, state: dict[str, Any]) -> None:
-        candidate = BehaviorCandidate.model_validate(state["behavior_candidates"][state["behavior_id"]])
+        candidate = BehaviorCandidate.model_validate(
+            state["behavior_candidates"][state["behavior_id"]]
+        )
         verifier = AttackVerificationService(self.db)
         verified = 0
         for proposed in candidate.proposed_attack_mappings:
@@ -479,8 +602,24 @@ class DetectionEngineeringGraph:
         if session:
             summary = dict(session.session_summary or {})
             summary.setdefault("behaviors_processed", []).append(state["behavior_id"])
-            accepted = [mapping.technique_id for mapping in self.db.scalars(select(AttackMapping).where(AttackMapping.behavior_id == state["behavior_id"], AttackMapping.verified.is_(True))).all()]
-            rejected = [mapping.technique_id for mapping in self.db.scalars(select(AttackMapping).where(AttackMapping.behavior_id == state["behavior_id"], AttackMapping.verified.is_(False))).all()]
+            accepted = [
+                mapping.technique_id
+                for mapping in self.db.scalars(
+                    select(AttackMapping).where(
+                        AttackMapping.behavior_id == state["behavior_id"],
+                        AttackMapping.verified.is_(True),
+                    )
+                ).all()
+            ]
+            rejected = [
+                mapping.technique_id
+                for mapping in self.db.scalars(
+                    select(AttackMapping).where(
+                        AttackMapping.behavior_id == state["behavior_id"],
+                        AttackMapping.verified.is_(False),
+                    )
+                ).all()
+            ]
             summary.setdefault("accepted_attack", []).extend(accepted)
             summary.setdefault("rejected_attack", []).extend(rejected)
             session.session_summary = summary
@@ -488,6 +627,8 @@ class DetectionEngineeringGraph:
 
     def coverage_analysis(self, state: dict[str, Any]) -> None:
         behavior = self.db.get(Behavior, state["behavior_id"])
+        if behavior is None:
+            raise ValueError("behavior_not_found")
         candidate = state["behavior_candidates"][state["behavior_id"]]
         result = CoverageService(self.db).analyze(behavior.fingerprint, candidate)
         self.db.add(
@@ -504,7 +645,9 @@ class DetectionEngineeringGraph:
         state["coverage_status"] = result["status"]
 
     def visibility_analysis(self, state: dict[str, Any]) -> None:
-        candidate = BehaviorCandidate.model_validate(state["behavior_candidates"][state["behavior_id"]])
+        candidate = BehaviorCandidate.model_validate(
+            state["behavior_candidates"][state["behavior_id"]]
+        )
         result = TelemetryService(self.db).analyze(candidate.required_telemetry)
         self.db.add(
             VisibilityResult(
@@ -522,6 +665,8 @@ class DetectionEngineeringGraph:
 
     def policy_decision(self, state: dict[str, Any]) -> None:
         behavior = self.db.get(Behavior, state["behavior_id"])
+        if behavior is None:
+            raise ValueError("behavior_not_found")
         decision = decide_policy(
             behavior.confidence,
             CoverageStatus(state["coverage_status"]),
@@ -532,7 +677,9 @@ class DetectionEngineeringGraph:
         session = self.reasoning.session_for_run(state["graph_run_id"])
         if session:
             summary = dict(session.session_summary or {})
-            summary.setdefault("policy_decisions", []).append({"behavior_id": state["behavior_id"], "decision": decision})
+            summary.setdefault("policy_decisions", []).append(
+                {"behavior_id": state["behavior_id"], "decision": decision}
+            )
             session.session_summary = summary
         self.db.add(
             PolicyDecision(
@@ -541,7 +688,8 @@ class DetectionEngineeringGraph:
                 behavior_id=state["behavior_id"],
                 coverage_status=CoverageStatus(state["coverage_status"]),
                 visibility_status=VisibilityStatus(state["visibility_status"]),
-                evidence_sufficient=behavior.confidence >= 0.45 and state["verified_mapping_count"] > 0,
+                evidence_sufficient=behavior.confidence >= 0.45
+                and state["verified_mapping_count"] > 0,
                 verified_mapping_count=state["verified_mapping_count"],
                 decision=PolicyDecisionValue(decision),
                 deterministic_rationale={
@@ -556,8 +704,27 @@ class DetectionEngineeringGraph:
 
     def generate_candidate(self, state: dict[str, Any]) -> None:
         behavior = self.db.get(Behavior, state["behavior_id"])
-        mappings = self.db.scalars(select(AttackMapping).where(AttackMapping.behavior_id == state["behavior_id"], AttackMapping.verified.is_(True))).all()
-        response, usage = asyncio.run(self.ai.generate_sigma({"behavior": {"summary": behavior.summary, "observables": behavior.observables, "evidence_refs": behavior.evidence_refs}, "attack_mappings": [jsonable_encoder(mapping) for mapping in mappings], "coverage_status": state.get("coverage_status"), "visibility_status": state.get("visibility_status")}))
+        if behavior is None:
+            raise ValueError("behavior_not_found")
+        mappings = self.db.scalars(
+            select(AttackMapping).where(
+                AttackMapping.behavior_id == state["behavior_id"], AttackMapping.verified.is_(True)
+            )
+        ).all()
+        response, usage = asyncio.run(
+            self.ai.generate_sigma(
+                {
+                    "behavior": {
+                        "summary": behavior.summary,
+                        "observables": behavior.observables,
+                        "evidence_refs": behavior.evidence_refs,
+                    },
+                    "attack_mappings": [jsonable_encoder(mapping) for mapping in mappings],
+                    "coverage_status": state.get("coverage_status"),
+                    "visibility_status": state.get("visibility_status"),
+                }
+            )
+        )
         state["candidate"] = response.sigma.model_dump()
         state["candidate_justification"] = response.structured_justification.model_dump()
         state["candidate_confidence"] = response.confidence
@@ -570,16 +737,37 @@ class DetectionEngineeringGraph:
             state["behavior_id"],
             "ai_generation",
             float(response.confidence),
-            {"prompt_version": usage.get("prompt_version"), "repair_attempts": state.get("repair_attempts", 0)},
+            {
+                "prompt_version": usage.get("prompt_version"),
+                "repair_attempts": state.get("repair_attempts", 0),
+            },
         )
-        self._persist_ai_interaction(state, "generate_candidate", response.model_dump(), usage, response.structured_justification.model_dump())
+        self._persist_ai_interaction(
+            state,
+            "generate_candidate",
+            response.model_dump(),
+            usage,
+            response.structured_justification.model_dump(),
+        )
 
     def validate_candidate(self, state: dict[str, Any]) -> None:
         previous_validation = state.get("validation")
-        previous_confidence = float((previous_validation or {}).get("confidence_assessment", {}).get("score", 0.0)) if isinstance(previous_validation, dict) else None
-        mappings = self.db.scalars(select(AttackMapping).where(AttackMapping.behavior_id == state["behavior_id"], AttackMapping.verified.is_(True))).all()
+        previous_confidence = (
+            float((previous_validation or {}).get("confidence_assessment", {}).get("score", 0.0))
+            if isinstance(previous_validation, dict)
+            else None
+        )
+        mappings = self.db.scalars(
+            select(AttackMapping).where(
+                AttackMapping.behavior_id == state["behavior_id"], AttackMapping.verified.is_(True)
+            )
+        ).all()
         required = [mapping.technique_id for mapping in mappings]
-        visibility = self.db.scalars(select(VisibilityResult).where(VisibilityResult.behavior_id == state["behavior_id"]).order_by(VisibilityResult.id.desc())).first()
+        visibility = self.db.scalars(
+            select(VisibilityResult)
+            .where(VisibilityResult.behavior_id == state["behavior_id"])
+            .order_by(VisibilityResult.id.desc())
+        ).first()
         telemetry_fields: list[str] = []
         if visibility:
             for source in visibility.required_sources:
@@ -595,13 +783,25 @@ class DetectionEngineeringGraph:
         state["validation"]["duplicate_result"] = duplicate
         state["validation"].setdefault("warnings", [])
         if duplicate["status"] in {"near_duplicate", "overlapping", "unknown", "supersedes"}:
-            state["validation"]["warnings"].append({"code": "duplicate_candidate", "message": f"Candidate is {duplicate['status']}"})
+            state["validation"]["warnings"].append(
+                {"code": "duplicate_candidate", "message": f"Candidate is {duplicate['status']}"}
+            )
         if duplicate["status"] == "exact_duplicate":
             state["validation"]["valid"] = False
             state["validation"]["repairable"] = False
-            state["validation"].setdefault("errors", []).append({"code": "exact_duplicate", "message": "Candidate exactly duplicates an active catalog detection"})
+            state["validation"].setdefault("errors", []).append(
+                {
+                    "code": "exact_duplicate",
+                    "message": "Candidate exactly duplicates an active catalog detection",
+                }
+            )
         candidate_payload = state["candidate"]
-        watcher_results = self.watchers.evaluate_candidate(candidate_payload, state["validation"], telemetry_fields, float(state.get("candidate_confidence", 0.0)))
+        watcher_results = self.watchers.evaluate_candidate(
+            candidate_payload,
+            state["validation"],
+            telemetry_fields,
+            float(state.get("candidate_confidence", 0.0)),
+        )
         self.reasoning.record_watchers(state["graph_run_id"], "validate_candidate", watcher_results)
         confidence = self.confidence.assess(
             state["validation"],
@@ -616,8 +816,12 @@ class DetectionEngineeringGraph:
         state["validation"]["watcher_results"] = watcher_results
         state["validation"]["confidence_assessment"] = confidence
         state["validation"]["trust_assessment"] = trust
-        state["validation"]["confidence_delta"] = round(confidence["score"] - (previous_confidence or 0.0), 4)
-        decision = self.satisfaction.assess(state["validation"], watcher_results, confidence["score"], trust["score"])
+        state["validation"]["confidence_delta"] = round(
+            confidence["score"] - (previous_confidence or 0.0), 4
+        )
+        decision = self.satisfaction.assess(
+            state["validation"], watcher_results, confidence["score"], trust["score"]
+        )
         state["satisfaction_decision"] = decision
         state["validation"]["satisfaction_decision"] = decision
         if decision.get("route_selected") == "reject":
@@ -677,33 +881,59 @@ class DetectionEngineeringGraph:
         state["repair_attempts"] = state.get("repair_attempts", 0) + 1
         state["candidate_before"] = jsonable_encoder(state.get("candidate"))
         behavior = self.db.get(Behavior, state["behavior_id"])
-        mappings = self.db.scalars(select(AttackMapping).where(AttackMapping.behavior_id == state["behavior_id"], AttackMapping.verified.is_(True))).all()
-        visibility = self.db.scalars(select(VisibilityResult).where(VisibilityResult.behavior_id == state["behavior_id"]).order_by(VisibilityResult.id.desc())).first()
-        telemetry_sources = self.db.scalars(select(TelemetrySource).where(TelemetrySource.enabled.is_(True))).all()
+        if behavior is None:
+            raise ValueError("behavior_not_found")
+        mappings = self.db.scalars(
+            select(AttackMapping).where(
+                AttackMapping.behavior_id == state["behavior_id"], AttackMapping.verified.is_(True)
+            )
+        ).all()
+        visibility = self.db.scalars(
+            select(VisibilityResult)
+            .where(VisibilityResult.behavior_id == state["behavior_id"])
+            .order_by(VisibilityResult.id.desc())
+        ).first()
+        telemetry_sources = self.db.scalars(
+            select(TelemetrySource).where(TelemetrySource.enabled.is_(True))
+        ).all()
         validation = state.get("validation") or {}
         session = self.reasoning.session_for_run(state["graph_run_id"])
         memory = session.session_summary if session else {}
-        compiled_outputs = validation.get("compiled_outputs") if isinstance(validation, dict) else {}
+        compiled_outputs = (
+            validation.get("compiled_outputs") if isinstance(validation, dict) else {}
+        )
         response, usage = asyncio.run(
             self.ai.repair_sigma(
                 {
                     "analyst_comment": state.get("analyst_comment"),
                     "candidate": state["candidate"],
-                    "behavior": jsonable_encoder(behavior) if behavior else None,
-                    "behavior_evidence": behavior.evidence_refs if behavior else [],
-                    "observables": behavior.observables if behavior else [],
+                    "behavior": jsonable_encoder(behavior),
+                    "behavior_evidence": behavior.evidence_refs,
+                    "observables": behavior.observables,
                     "verified_attack_mappings": [jsonable_encoder(mapping) for mapping in mappings],
-                    "available_telemetry": [jsonable_encoder(source) for source in telemetry_sources],
+                    "available_telemetry": [
+                        jsonable_encoder(source) for source in telemetry_sources
+                    ],
                     "telemetry_result": jsonable_encoder(visibility) if visibility else None,
                     "compiler_errors": (compiled_outputs or {}).get("compiler_errors", []),
-                    "validation_errors": validation.get("errors", []) if isinstance(validation, dict) else [],
+                    "validation_errors": validation.get("errors", [])
+                    if isinstance(validation, dict)
+                    else [],
                     "validation": validation,
                     "prior_revision_summary": prior_revision_summary,
-                    "previous_change_history": state.get("candidate_justification", {}).get("change_summary", []),
+                    "previous_change_history": state.get("candidate_justification", {}).get(
+                        "change_summary", []
+                    ),
                     "session_memory": memory,
-                    "repair_history": memory.get("repair_history", []) if isinstance(memory, dict) else [],
-                    "watcher_failures": memory.get("watcher_failures", []) if isinstance(memory, dict) else [],
-                    "validation_history": memory.get("validation_history", []) if isinstance(memory, dict) else [],
+                    "repair_history": memory.get("repair_history", [])
+                    if isinstance(memory, dict)
+                    else [],
+                    "watcher_failures": memory.get("watcher_failures", [])
+                    if isinstance(memory, dict)
+                    else [],
+                    "validation_history": memory.get("validation_history", [])
+                    if isinstance(memory, dict)
+                    else [],
                 }
             )
         )
@@ -713,16 +943,26 @@ class DetectionEngineeringGraph:
         state["candidate_confidence"] = response.confidence
         state["token_usage"] = usage["token_usage"]
         state["estimated_cost"] = usage["estimated_cost"]
-        self._persist_ai_interaction(state, "repair_candidate", response.model_dump(), usage, response.structured_justification.model_dump())
+        self._persist_ai_interaction(
+            state,
+            "repair_candidate",
+            response.model_dump(),
+            usage,
+            response.structured_justification.model_dump(),
+        )
 
     def queue_review(self, state: dict[str, Any]) -> None:
         validation = state["validation"]
         if not validation["valid"]:
             raise ValueError("invalid_candidate_cannot_enter_review")
-        state["reasoning_termination_reason"] = state.get("reasoning_termination_reason") or "validation_succeeded"
+        state["reasoning_termination_reason"] = (
+            state.get("reasoning_termination_reason") or "validation_succeeded"
+        )
         candidate = validation["candidate"]
         sigma_yaml = self.sigma.to_yaml(candidate)
-        proposal = self.db.get(Proposal, state.get("proposal_id")) if state.get("proposal_id") else None
+        proposal = (
+            self.db.get(Proposal, state.get("proposal_id")) if state.get("proposal_id") else None
+        )
         if proposal is None:
             proposal = Proposal(
                 behavior_id=state["behavior_id"],
@@ -765,10 +1005,15 @@ class DetectionEngineeringGraph:
                 attack_verified=True,
                 errors=validation["errors"],
                 warnings=validation["warnings"],
-                compiled_outputs={**validation["compiled_outputs"], "duplicate_result": validation.get("duplicate_result")},
+                compiled_outputs={
+                    **validation["compiled_outputs"],
+                    "duplicate_result": validation.get("duplicate_result"),
+                },
             )
         )
         event = self.db.get(CtiEvent, state["cti_event_id"])
+        if event is None:
+            raise ValueError("cti_event_not_found")
         event.status = CtiEventStatus.ready_review
         self.db.commit()
         state["proposal_id"] = proposal.id
@@ -786,6 +1031,8 @@ class DetectionEngineeringGraph:
         state["analyst_action"] = action.action
         if action.action == ReviewActionType.reject:
             proposal = self.db.get(Proposal, state["proposal_id"])
+            if proposal is None:
+                raise ValueError("proposal_not_found")
             proposal.status = ProposalStatus.rejected
             event = self.db.get(CtiEvent, state["cti_event_id"])
             if event:
@@ -797,8 +1044,12 @@ class DetectionEngineeringGraph:
         artifact = deployment.create_artifact(revision)
         detection = deployment.publish_detection(revision, artifact)
         proposal = self.db.get(Proposal, state["proposal_id"])
+        if proposal is None:
+            raise ValueError("proposal_not_found")
         proposal.status = ProposalStatus.deployed
         workflow = self.db.get(Workflow, proposal.workflow_id)
+        if workflow is None:
+            raise ValueError("workflow_not_found")
         workflow.status = WorkflowStatus.deployed
         event = self.db.get(CtiEvent, workflow.cti_event_id)
         if event:
@@ -816,10 +1067,20 @@ class DetectionEngineeringGraph:
             raise ValueError("proposal_revision_not_found")
         return revision
 
-    def _persist_ai_interaction(self, state: dict[str, Any], node_name: str, response: dict[str, Any], usage: dict[str, Any], justification: dict[str, Any]) -> None:
+    def _persist_ai_interaction(
+        self,
+        state: dict[str, Any],
+        node_name: str,
+        response: dict[str, Any],
+        usage: dict[str, Any],
+        justification: dict[str, Any],
+    ) -> None:
         node = self.db.scalars(
             select(GraphNodeRun)
-            .where(GraphNodeRun.graph_run_id == state["graph_run_id"], GraphNodeRun.node_name == node_name)
+            .where(
+                GraphNodeRun.graph_run_id == state["graph_run_id"],
+                GraphNodeRun.node_name == node_name,
+            )
             .order_by(GraphNodeRun.started_at.desc())
         ).first()
         if node is None:
@@ -827,7 +1088,9 @@ class DetectionEngineeringGraph:
         token_usage = usage["token_usage"]
         idempotency_material = f"{state['graph_run_id']}:{node_name}:{usage['input_hash']}"
         idempotency_key = hashlib.sha256(idempotency_material.encode()).hexdigest()
-        existing = self.db.scalars(select(AiInteraction).where(AiInteraction.idempotency_key == idempotency_key)).first()
+        existing = self.db.scalars(
+            select(AiInteraction).where(AiInteraction.idempotency_key == idempotency_key)
+        ).first()
         if existing:
             return
         self.db.add(
@@ -859,6 +1122,8 @@ class DetectionEngineeringGraph:
             )
         )
         graph_run = self.db.get(GraphRun, state["graph_run_id"])
+        if graph_run is None:
+            raise ValueError("graph_run_not_found")
         graph_run.total_tokens += token_usage.get("total_tokens", 0)
         graph_run.estimated_cost = float(graph_run.estimated_cost) + usage["estimated_cost"]
 

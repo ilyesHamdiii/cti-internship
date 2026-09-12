@@ -1,3 +1,5 @@
+from importlib import import_module
+
 from celery import Celery
 
 from app.core.config import get_settings
@@ -18,4 +20,4 @@ celery_app.conf.beat_schedule = {
     }
 }
 
-import app.workers.tasks  # noqa: E402,F401
+import_module("app.workers.tasks")

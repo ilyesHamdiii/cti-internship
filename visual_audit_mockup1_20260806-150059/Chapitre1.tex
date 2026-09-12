@@ -1,0 +1,80 @@
+\chapter{Contexte du stage et analyse du besoin}
+
+\section{Introduction}
+
+Ce chapitre présente le cadre dans lequel le projet a été réalisé. Il précise le problème rencontré par les équipes SOC et d'ingénierie de détection, identifie les acteurs du système et traduit le besoin en objectifs fonctionnels et techniques. Cette analyse sert de base aux choix d'architecture présentés dans le chapitre suivant.
+
+\section{Présentation de l'organisme d'accueil}
+
+Le stage a été réalisé au sein de Forvis Mazars Group. Dans le cadre de cette mission, l'environnement étudié concerne les activités de cybersécurité, et plus particulièrement le traitement du renseignement sur les menaces et la production de règles de détection. Le projet se place à l'interface entre les analystes CTI, qui collectent et qualifient l'information sur les adversaires, et les analystes SOC, qui exploitent la télémétrie des systèmes pour identifier des activités suspectes.
+
+Ce positionnement relie la gestion des risques numériques à un besoin opérationnel concret. Une organisation peut disposer d'informations pertinentes sur une menace sans être capable de les convertir rapidement en contrôles observables. Le sujet du stage vise précisément à réduire cet écart entre connaissance de la menace et capacité de détection, tout en conservant les exigences de justification et de maîtrise attendues dans un contexte de cybersécurité.
+
+La durée limitée du stage, fixée à un mois, a conduit à privilégier une plateforme locale reproductible, démontrant l'ensemble du cycle de traitement sans prétendre remplacer une infrastructure SOC de production. Cette contrainte a orienté la solution vers Docker Compose, des services clairement séparés et des scénarios de test déterministes.
+
+\section{Contexte métier}
+
+\subsection{Du renseignement à la détection}
+
+Une plateforme MISP centralise des événements CTI contenant des attributs tels que des adresses IP, des noms de domaine, des empreintes de fichiers, des commandes ou des descriptions d'activité. Un indicateur de compromission peut être directement recherché, mais sa durée de vie est parfois courte. Une détection fondée sur un comportement, par exemple une technique d'exécution ou de persistance, peut offrir une couverture plus durable. Il faut donc interpréter les éléments de l'événement afin d'identifier des comportements observables et de les traduire en logique de détection.
+
+Cette traduction nécessite plusieurs compétences. L'analyste doit vérifier que le comportement est réellement soutenu par les éléments sources, choisir une technique MITRE ATT\&CK pertinente, déterminer les journaux et les champs nécessaires, vérifier la couverture existante, rédiger la règle Sigma puis tester sa compilation vers le langage de la plateforme cible. Chaque étape peut conduire à l'arrêt du traitement : preuves insuffisantes, absence de télémétrie, détection déjà couverte ou règle invalide.
+
+\subsection{Problème identifié}
+
+Le processus manuel comporte de nombreuses ruptures entre outils et plusieurs décisions répétitives. Une information doit être copiée ou reformulée, comparée au catalogue existant, confrontée à l'inventaire de télémétrie puis transformée en règle. L'absence d'une trace structurée rend également difficile l'explication a posteriori d'une décision ou d'une correction.
+
+Le problème traité peut ainsi être formulé de la manière suivante : comment automatiser une part importante de la transformation d'un événement MISP en proposition de détection, tout en garantissant la traçabilité, les contrôles déterministes et l'approbation obligatoire d'un analyste ?
+
+Cette formulation tient compte des conséquences d'une mauvaise détection. Une règle trop large peut augmenter fortement le nombre de faux positifs et détourner l'attention du SOC. Une règle trop restrictive peut manquer une activité réellement malveillante. Enfin, une règle techniquement invalide ou fondée sur une télémétrie absente peut donner une impression trompeuse de couverture. L'automatisation recherchée doit donc améliorer la vitesse de préparation sans diminuer le niveau de contrôle.
+
+\section{Parties prenantes et rôles}
+
+La plateforme distingue plusieurs responsabilités :
+\begin{itemize}[leftmargin=1.2cm]
+    \item le système MISP fournit les événements de renseignement ;
+    \item le worker d'automatisation consomme et traite les événements en arrière-plan ;
+    \item le fournisseur d'intelligence artificielle extrait des comportements et propose ou répare des règles ;
+    \item les services déterministes vérifient les preuves, ATT\&CK, la télémétrie, les doublons et la validité Sigma ;
+    \item l'analyste consulte les résultats et prend la décision d'approbation, de rejet ou de demande de modification ;
+    \item l'administrateur configure notamment les sources de télémétrie, les paramètres et la planification MISP.
+\end{itemize}
+
+Cette séparation empêche le modèle d'intelligence artificielle de devenir l'autorité de décision. Elle permet aussi d'attribuer clairement chaque résultat à son origine : proposition probabiliste, règle métier déterministe ou action humaine.
+
+\section{Objectifs fonctionnels}
+
+L'objectif principal est de couvrir le cycle de vie complet d'une proposition de détection. La plateforme doit :
+\begin{enumerate}[leftmargin=1.2cm]
+    \item interroger l'API MISP et normaliser les événements CTI ;
+    \item créer un workflow indépendant et traçable pour chaque événement ;
+    \item extraire un ou plusieurs comportements détectables et vérifier leur ancrage dans les preuves ;
+    \item proposer puis valider les associations MITRE ATT\&CK ;
+    \item comparer le besoin avec le catalogue de détections existant ;
+    \item vérifier la disponibilité des sources et champs de télémétrie ;
+    \item décider de poursuivre, d'arrêter ou de générer un candidat ;
+    \item produire une règle Sigma, la valider et la compiler avec pySigma ;
+    \item rechercher les doublons exacts et les règles proches ;
+    \item corriger un candidat défectueux dans une boucle bornée ;
+    \item conserver les sessions, révisions, contrôles, scores et décisions ;
+    \item présenter les propositions dans une file de revue ;
+    \item publier dans le catalogue uniquement après approbation humaine.
+\end{enumerate}
+
+\section{Objectifs techniques et contraintes}
+
+Le système doit proposer une API REST authentifiée, une interface destinée au SOC, une base relationnelle comme source de vérité et un traitement asynchrone. L'orchestration doit être assurée par un seul moteur de workflow afin d'éviter des décisions dispersées dans plusieurs composants. La solution doit également pouvoir fonctionner sans appel à un modèle externe grâce à un mode de données prédéfinies, indispensable pour les démonstrations et l'intégration continue.
+
+Les contraintes principales sont la reproductibilité locale, l'auditabilité et la sécurité. Le déploiement retenu doit réunir la plateforme et une instance MISP réelle tout en séparant leurs réseaux. Les sorties de l'intelligence artificielle doivent être structurées et validables. Les révisions doivent rester immuables afin de préserver l'historique. Enfin, aucune création d'artifact de déploiement ou d'entrée de catalogue ne doit intervenir avant l'action explicite de l'analyste.
+
+Les critères d'acceptation découlent directement de ces contraintes. Un scénario complet doit démontrer une ingestion MISP réelle, la création d'un workflow, la persistance des nœuds et des révisions, l'exécution effective des watchers, la validation pySigma, la recherche de doublons, une réparation lorsque l'erreur est corrigeable et le maintien de l'analyste comme autorité finale. La documentation des limites fait également partie du résultat attendu, afin de ne pas présenter le démonstrateur comme une plateforme déjà qualifiée pour la production.
+
+\section{Démarche adoptée}
+
+La réalisation suit une progression allant des fondations vers le workflow complet. Les premières activités concernent le modèle de données, l'API, l'authentification et l'environnement conteneurisé. Les services MISP et les contrôles déterministes sont ensuite intégrés. Le graphe de traitement relie ces services aux appels d'intelligence artificielle. Enfin, l'interface de revue, les tests et les pipelines DevSecOps permettent de vérifier le cycle complet.
+
+Cette démarche réduit le risque de construire un workflow reposant uniquement sur des réponses génératives. Les décisions critiques disposent d'abord d'une représentation persistante et de règles déterministes, auxquelles l'intelligence artificielle vient apporter une capacité de proposition.
+
+\section{Conclusion}
+
+L'analyse met en évidence un besoin d'automatisation encadrée plutôt que d'autonomie complète. La plateforme doit accélérer la préparation des détections tout en maintenant une séparation nette entre génération, contrôle et décision. Le chapitre suivant décrit l'architecture retenue pour respecter cette exigence.

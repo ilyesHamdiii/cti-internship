@@ -1,4 +1,5 @@
 import json
+from typing import Any, ClassVar
 
 import httpx
 import pytest
@@ -16,7 +17,11 @@ class FakeResponse:
 
     def raise_for_status(self):
         if self.status_code >= 400:
-            raise httpx.HTTPStatusError("provider failure", request=self.request, response=httpx.Response(self.status_code, request=self.request))
+            raise httpx.HTTPStatusError(
+                "provider failure",
+                request=self.request,
+                response=httpx.Response(self.status_code, request=self.request),
+            )
 
     def json(self):
         if self.json_error:
@@ -25,9 +30,9 @@ class FakeResponse:
 
 
 class FakeAsyncClient:
-    calls = []
-    responses = []
-    timeout_seen = None
+    calls: ClassVar[list[dict[str, Any]]] = []
+    responses: ClassVar[list[FakeResponse | Exception]] = []
+    timeout_seen: ClassVar[int | None] = None
 
     def __init__(self, timeout=None):
         FakeAsyncClient.timeout_seen = timeout
@@ -63,7 +68,13 @@ def provider_payload(content: dict, usage: dict | None = None) -> dict:
 
 
 def cti_response() -> dict:
-    evidence = [{"ref": "attribute:1", "excerpt": "powershell.exe -EncodedCommand", "source_field": "attributes"}]
+    evidence = [
+        {
+            "ref": "attribute:1",
+            "excerpt": "powershell.exe -EncodedCommand",
+            "source_field": "attributes",
+        }
+    ]
     return {
         "behaviors": [
             {
@@ -120,7 +131,9 @@ def fake_http(monkeypatch):
 async def test_deepseek_request_construction_auth_timeout_usage_and_hashing() -> None:
     FakeAsyncClient.responses = [FakeResponse(provider_payload(cti_response()))]
 
-    response, usage = await DeepSeekClient(settings()).analyze_cti({"attributes": [{"id": "1", "value": "powershell"}]})
+    response, usage = await DeepSeekClient(settings()).analyze_cti(
+        {"attributes": [{"id": "1", "value": "powershell"}]}
+    )
 
     request = FakeAsyncClient.calls[0]
     assert response.behaviors[0].summary == "PowerShell encoded command execution"
@@ -143,7 +156,9 @@ async def test_deepseek_retries_malformed_json_then_succeeds() -> None:
         FakeResponse(provider_payload(cti_response())),
     ]
 
-    _response, usage = await DeepSeekClient(settings()).analyze_cti({"attributes": [{"id": "1", "value": "powershell"}]})
+    _response, usage = await DeepSeekClient(settings()).analyze_cti(
+        {"attributes": [{"id": "1", "value": "powershell"}]}
+    )
 
     assert len(FakeAsyncClient.calls) == 2
     assert usage["attempts"] == 2
@@ -156,7 +171,9 @@ async def test_deepseek_retries_schema_invalid_response_then_succeeds() -> None:
         FakeResponse(provider_payload(cti_response())),
     ]
 
-    _response, usage = await DeepSeekClient(settings()).analyze_cti({"attributes": [{"id": "1", "value": "powershell"}]})
+    _response, usage = await DeepSeekClient(settings()).analyze_cti(
+        {"attributes": [{"id": "1", "value": "powershell"}]}
+    )
 
     assert len(FakeAsyncClient.calls) == 2
     assert usage["attempts"] == 2

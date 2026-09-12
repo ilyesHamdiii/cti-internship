@@ -22,14 +22,28 @@ class DuplicateDetectionService:
                 "matched_detection_id": None,
                 "score": 0.0,
                 "threshold": None,
-                "similarity_features": {"candidate_comparable": False, "compiled_query_present": bool(compiled_query)},
+                "similarity_features": {
+                    "candidate_comparable": False,
+                    "compiled_query_present": bool(compiled_query),
+                },
                 "rationale": {"decision_factors": ["insufficient_comparable_signal"]},
                 "recommended_action": "allow_review_without_uniqueness_claim",
             }
-        detections = self.db.scalars(select(DetectionCatalog).where(DetectionCatalog.status == DetectionStatus.active)).all()
+        detections = self.db.scalars(
+            select(DetectionCatalog).where(DetectionCatalog.status == DetectionStatus.active)
+        ).all()
         candidate_fingerprint = canonical_fingerprint(candidate)
-        declared_supersedes = candidate.get("supersedes_detection_id") or candidate.get("replaces_detection_id")
-        best = duplicate_result("unique", None, 0.0, "no_active_catalog_match", None, {"candidate_fingerprint": candidate_fingerprint})
+        declared_supersedes = candidate.get("supersedes_detection_id") or candidate.get(
+            "replaces_detection_id"
+        )
+        best = duplicate_result(
+            "unique",
+            None,
+            0.0,
+            "no_active_catalog_match",
+            None,
+            {"candidate_fingerprint": candidate_fingerprint},
+        )
         for detection in detections:
             normalized = detection.normalized_logic or {}
             existing_sigma = normalized.get("sigma") or normalized.get("content") or normalized
@@ -56,12 +70,16 @@ class DuplicateDetectionService:
                     status,
                     detection.id if status != "unique" else None,
                     score,
-                    "canonical_sigma_similarity" if status != "supersedes" else "declared_supersedes_active_detection",
+                    "canonical_sigma_similarity"
+                    if status != "supersedes"
+                    else "declared_supersedes_active_detection",
                     threshold_for(status),
                     {
                         "candidate_fingerprint": candidate_fingerprint,
                         "existing_query_present": bool(existing_query),
-                        "compiled_query_equal": bool(compiled_query and existing_query and compiled_query == existing_query),
+                        "compiled_query_equal": bool(
+                            compiled_query and existing_query and compiled_query == existing_query
+                        ),
                     },
                 )
         return best
@@ -106,7 +124,14 @@ def recommended_action(status: str) -> str:
     }[status]
 
 
-def duplicate_result(status: str, detection_id: str | None, score: float, factor: str, threshold: float | None, features: dict[str, object]) -> dict[str, Any]:
+def duplicate_result(
+    status: str,
+    detection_id: str | None,
+    score: float,
+    factor: str,
+    threshold: float | None,
+    features: dict[str, object],
+) -> dict[str, Any]:
     return {
         "status": status,
         "matches": [detection_id] if detection_id else [],
@@ -114,6 +139,14 @@ def duplicate_result(status: str, detection_id: str | None, score: float, factor
         "score": score,
         "threshold": threshold,
         "similarity_features": features,
-        "rationale": {"decision_factors": [factor], "thresholds": {"exact_duplicate": 1.0, "near_duplicate": 0.86, "overlapping": 0.65, "supersedes": 0.9}},
+        "rationale": {
+            "decision_factors": [factor],
+            "thresholds": {
+                "exact_duplicate": 1.0,
+                "near_duplicate": 0.86,
+                "overlapping": 0.65,
+                "supersedes": 0.9,
+            },
+        },
         "recommended_action": recommended_action(status),
     }

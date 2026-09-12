@@ -7,7 +7,10 @@ def canonicalize(value: Any) -> Any:
     if isinstance(value, dict):
         return {str(k).lower(): canonicalize(value[k]) for k in sorted(value)}
     if isinstance(value, list):
-        return sorted((canonicalize(item) for item in value), key=lambda item: json.dumps(item, sort_keys=True))
+        return sorted(
+            (canonicalize(item) for item in value),
+            key=lambda item: json.dumps(item, sort_keys=True),
+        )
     if isinstance(value, str):
         return " ".join(value.lower().split())
     return value

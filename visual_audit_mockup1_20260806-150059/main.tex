@@ -1,0 +1,79 @@
+\documentclass[12pt,a4paper]{report}
+\usepackage[top=2.5cm, bottom=2.5cm, left=2.5cm, right=2.5cm]{geometry}
+
+% Différentes options pour la classe :
+% - taille de la fonte : 10pt, 11pt, 12pt
+% - recto ou recto-verso : oneside, twoside
+% - stade de développement : draft, final
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage{textcomp}
+\usepackage[pdftex]{graphicx}
+\usepackage{setspace}
+\usepackage{hyperref}
+\usepackage[french]{varioref}
+\usepackage{fancyhdr}
+\usepackage{color}
+\usepackage{colortbl}
+\usepackage{amsmath}
+\usepackage{ifpdf}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{enumitem}
+
+\IfFileExists{lmodern.sty}{\usepackage{lmodern}}{}
+
+\hypersetup{hidelinks}
+\setlength{\parindent}{0.7cm}
+\setlength{\parskip}{0.15cm}
+\setlength{\headheight}{15pt}
+\setlength{\emergencystretch}{3em}
+\onehalfspacing
+
+\pagestyle{fancy}
+\fancyhead[L]{}
+\fancyhead[C]{}
+\fancyhead[R]{\nouppercase\rightmark}
+\fancyfoot[L]{}
+\fancyfoot[C]{}
+\fancyfoot[R]{\textbf{\thepage}}
+
+% Emplacement réservé aux figures et captures qui seront insérées après validation.
+\newcommand{\figureplaceholder}[2]{%
+\begin{figure}[htbp]
+\centering
+\fbox{\parbox[c][5cm][c]{0.86\textwidth}{\centering\textit{Emplacement réservé : #1}}}
+\caption{#1}
+\label{#2}
+\end{figure}}
+
+\begin{document}
+
+\hypersetup{pageanchor=false}
+\include{garde_fin}
+\include{garde_sign_fin}
+\newpage
+\pagenumbering{roman}
+\hypersetup{pageanchor=true}
+\include{Remerciements}
+\tableofcontents
+\listoffigures
+\listoftables
+\newpage
+\pagenumbering{arabic}
+\include{Introduction}
+\include{Chapitre1}
+\include{Chapitre2}
+\include{Chapitre3}
+\include{Conclusion}
+
+\nocite{*}
+\bibliographystyle{alpha}
+\bibliography{Biblio}
+\addcontentsline{toc}{chapter}{Bibliographie}
+\pagestyle{empty}
+\include{Annexe1}
+
+\end{document}

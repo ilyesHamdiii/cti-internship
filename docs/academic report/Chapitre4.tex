@@ -39,6 +39,79 @@ arrow/.style={-Latex, thick}
 \label{fig:architecture-globale}
 \end{figure}
 
+La figure \ref{fig:backend-architecture} détaille l'organisation interne du backend autour des routes API, des services métiers, de l'orchestration asynchrone et de la persistance.
+
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{
+\begin{tikzpicture}[
+layer/.style={draw, rounded corners, minimum width=3.2cm, minimum height=0.85cm, align=center, fill=gray!8},
+service/.style={draw, rounded corners, minimum width=2.7cm, minimum height=0.75cm, align=center, fill=blue!6},
+store/.style={draw, rounded corners, minimum width=2.7cm, minimum height=0.75cm, align=center, fill=green!8},
+arrow/.style={-Latex, thick}
+]
+\node[layer] (routes) {FastAPI routes};
+\node[service, below left=0.9cm and 2.7cm of routes] (cti) {CTI / MISP};
+\node[service, below=0.9cm of routes] (reasoning) {Reasoning / LangGraph};
+\node[service, below right=0.9cm and 2.7cm of routes] (review) {Review / Catalog};
+\node[service, below=0.95cm of cti] (det) {Coverage, telemetry, duplicates};
+\node[service, below=0.95cm of reasoning] (ai) {AI provider, watchers, scores};
+\node[service, below=0.95cm of review] (sigma) {Sigma, pySigma, deployment artifacts};
+\node[store, below=1cm of det] (postgres) {PostgreSQL};
+\node[store, below=1cm of ai] (redis) {Redis / Celery broker};
+\node[store, below=1cm of sigma] (external) {MISP API};
+\draw[arrow] (routes) -- (cti);
+\draw[arrow] (routes) -- (reasoning);
+\draw[arrow] (routes) -- (review);
+\draw[arrow] (cti) -- (det);
+\draw[arrow] (reasoning) -- (ai);
+\draw[arrow] (review) -- (sigma);
+\draw[arrow] (det) -- (postgres);
+\draw[arrow] (ai) -- (postgres);
+\draw[arrow] (ai) -- (redis);
+\draw[arrow] (sigma) -- (postgres);
+\draw[arrow] (cti) -- (external);
+\end{tikzpicture}}
+\caption{Architecture backend logique}
+\label{fig:backend-architecture}
+\end{figure}
+
+La figure \ref{fig:frontend-architecture} présente la séparation des vues opérationnelles, des composants partagés et du client API utilisé par l'interface Next.js.
+
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{
+\begin{tikzpicture}[
+box/.style={draw, rounded corners, minimum width=2.85cm, minimum height=0.78cm, align=center, fill=cyan!7},
+shared/.style={draw, rounded corners, minimum width=2.85cm, minimum height=0.78cm, align=center, fill=green!8},
+arrow/.style={-Latex, thick}
+]
+\node[box] (dashboard) {Dashboard};
+\node[box, right=0.55cm of dashboard] (threats) {Threats};
+\node[box, right=0.55cm of threats] (ai) {AI / workflow};
+\node[box, right=0.55cm of ai] (reviews) {Reviews};
+\node[box, below=0.65cm of dashboard] (catalog) {Catalog};
+\node[box, right=0.55cm of catalog] (attack) {ATT\&CK};
+\node[box, right=0.55cm of attack] (health) {Health};
+\node[box, right=0.55cm of health] (settings) {Settings};
+\node[shared, below=1.05cm of threats] (components) {Shared components};
+\node[shared, right=0.9cm of components] (client) {\texttt{frontend/lib/api.ts}};
+\node[shared, right=0.9cm of client] (backend) {FastAPI};
+\draw[arrow] (dashboard) -- (components);
+\draw[arrow] (threats) -- (components);
+\draw[arrow] (ai) -- (components);
+\draw[arrow] (reviews) -- (components);
+\draw[arrow] (catalog) -- (components);
+\draw[arrow] (attack) -- (components);
+\draw[arrow] (health) -- (components);
+\draw[arrow] (settings) -- (components);
+\draw[arrow] (components) -- (client);
+\draw[arrow] (client) -- (backend);
+\end{tikzpicture}}
+\caption{Architecture frontend de l'interface SOC}
+\label{fig:frontend-architecture}
+\end{figure}
+
 FastAPI a été choisi pour sa rapidité de développement, sa validation Pydantic et sa documentation automatique. PostgreSQL a été retenu car le modèle mélange des relations fortes et des données JSONB, ce qui convient aux événements CTI et aux traces IA. Redis et Celery répondent au besoin d'exécution asynchrone : une analyse CTI peut nécessiter plusieurs étapes et ne doit pas bloquer une requête HTTP. Next.js offre une base adaptée à une interface SOC réactive et typée.
 
 \section{Architecture Docker}
@@ -69,6 +142,41 @@ arrow/.style={-Latex}
 \end{tikzpicture}
 \caption{Organisation Docker et séparation du réseau MISP}
 \label{fig:docker-architecture}
+\end{figure}
+
+La figure \ref{fig:deployment-architecture} complète cette vue en montrant le chemin d'accès local et les services persistants utilisés pendant l'exécution.
+
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{
+\begin{tikzpicture}[
+zone/.style={draw, rounded corners, inner sep=0.35cm},
+box/.style={draw, rounded corners, minimum width=2.9cm, minimum height=0.75cm, align=center, fill=blue!6},
+data/.style={draw, rounded corners, minimum width=2.9cm, minimum height=0.75cm, align=center, fill=green!8},
+arrow/.style={-Latex, thick}
+]
+\node[box] (browser) {Browser\\localhost:8080};
+\node[box, right=1.2cm of browser] (nginx) {nginx};
+\node[box, right=1.2cm of nginx] (frontend) {frontend};
+\node[box, below=0.85cm of frontend] (backend) {backend};
+\node[box, right=1.2cm of backend] (worker) {worker / scheduler};
+\node[data, below=0.85cm of backend] (postgres) {PostgreSQL volume};
+\node[data, right=1.2cm of postgres] (redis) {Redis volume};
+\node[box, above=0.85cm of worker] (misp) {MISP\\localhost:8443};
+\node[data, right=1.2cm of misp] (mispdata) {MISP persistent volumes};
+\draw[arrow] (browser) -- (nginx);
+\draw[arrow] (nginx) -- (frontend);
+\draw[arrow] (nginx) -- (backend);
+\draw[arrow] (backend) -- (postgres);
+\draw[arrow] (worker) -- (postgres);
+\draw[arrow] (backend) -- (redis);
+\draw[arrow] (worker) -- (redis);
+\draw[arrow] (backend) -- (misp);
+\draw[arrow] (worker) -- (misp);
+\draw[arrow] (misp) -- (mispdata);
+\end{tikzpicture}}
+\caption{Architecture de déploiement Docker Compose en environnement local}
+\label{fig:deployment-architecture}
 \end{figure}
 
 \section{Conception du workflow IA}
@@ -109,6 +217,50 @@ arrow/.style={-Latex}
 \end{tikzpicture}
 \caption{Workflow LangGraph et boucle de réparation}
 \label{fig:workflow-langgraph}
+\end{figure}
+
+La figure \ref{fig:ai-reasoning-loop} explicite la boucle bornée de raisonnement : chaque tentative est une révision persistée dans une même session, les contrôles sont rejoués après chaque réparation et l'analyste reste la seule autorité d'approbation.
+
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{
+\begin{tikzpicture}[
+node distance=0.7cm and 0.8cm,
+step/.style={draw, rounded corners, minimum width=2.55cm, minimum height=0.72cm, align=center, fill=blue!6},
+gate/.style={draw, diamond, aspect=2.1, minimum width=2.55cm, align=center, fill=yellow!12},
+memory/.style={draw, rounded corners, minimum width=2.8cm, minimum height=0.72cm, align=center, fill=purple!8},
+term/.style={draw, rounded corners, minimum width=3.15cm, minimum height=0.72cm, align=center, fill=red!8},
+ok/.style={draw, rounded corners, minimum width=2.9cm, minimum height=0.72cm, align=center, fill=green!8},
+arrow/.style={-Latex, thick},
+looparrow/.style={-Latex, line width=1.3pt}
+]
+\node[step] (revn) {Revision N\\\texttt{ai\_reasoning\_revision}};
+\node[step, right=of revn] (eval) {Watchers\\pySigma};
+\node[step, right=of eval] (scores) {Confidence\\Trust};
+\node[gate, right=of scores] (sat) {REVISION\\SATISFIED ?};
+\node[ok, above right=0.7cm and 0.9cm of sat] (review) {Queue for\\analyst review};
+\node[term, right=1.2cm of sat] (max) {Max revisions reached\\needs review};
+\node[term, below right=0.7cm and 0.9cm of sat] (noimp) {No meaningful improvement\\needs review};
+\node[term, below=1.2cm of sat] (reject) {Blocking safety failure\\rejected};
+\node[memory, below=1.15cm of eval] (mem) {Read same-session memory};
+\node[memory, left=of mem] (history) {Previous watcher failures\\validation errors\\repair history};
+\node[step, left=of history] (repair) {Repair candidate};
+\node[step, above=0.8cm of repair] (revnext) {Revision N+1\\improved candidate};
+\draw[arrow] (revn) -- (eval);
+\draw[arrow] (eval) -- (scores);
+\draw[arrow] (scores) -- (sat);
+\draw[arrow] (sat) -- node[above]{YES} (review);
+\draw[arrow] (sat) -- node[above]{NO: budget exhausted} (max);
+\draw[arrow] (sat) -- node[right]{NO: no improvement} (noimp);
+\draw[arrow] (sat) -- node[right]{NO: safety} (reject);
+\draw[arrow] (sat) |- node[pos=0.25,left]{NO: repairable} (mem);
+\draw[arrow] (mem) -- (history);
+\draw[arrow] (history) -- (repair);
+\draw[arrow] (repair) -- (revnext);
+\draw[looparrow] (revnext) -| node[pos=0.25,above]{\textbf{BOUNDED SAME-SESSION REVISION LOOP}} (eval);
+\end{tikzpicture}}
+\caption{Boucle de raisonnement IA bornée dans une même session}
+\label{fig:ai-reasoning-loop}
 \end{figure}
 
 \section{Ingestion MISP}

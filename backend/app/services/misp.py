@@ -1,15 +1,23 @@
-from datetime import datetime, timedelta
 import hashlib
 import logging
 import re
-from typing import Any
+from datetime import UTC, datetime, timedelta
+from typing import Any, cast
 
 import httpx
+from pymisp.exceptions import PyMISPError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.models.models import CtiConsumptionRecord, CtiEvent, GraphRun, MispPollState, Setting, Workflow
+from app.models.models import (
+    CtiConsumptionRecord,
+    CtiEvent,
+    GraphRun,
+    MispPollState,
+    Setting,
+    Workflow,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -44,23 +52,43 @@ class MispIngestionService:
             "evidence_text": "\n".join(str(attr.get("value", "")) for attr in attributes),
         }
 
-    def ingest_raw_event(self, raw_event: dict[str, Any], trigger_source: str = "manual", strategy: str = "manual", requested_misp_event_id: str | None = None) -> tuple[CtiEvent, Workflow, bool]:
-        requested_at = datetime.utcnow()
+    def ingest_raw_event(
+        self,
+        raw_event: dict[str, Any],
+        trigger_source: str = "manual",
+        strategy: str = "manual",
+        requested_misp_event_id: str | None = None,
+    ) -> tuple[CtiEvent, Workflow, bool]:
+        requested_at = datetime.now(UTC)
         normalized = self.normalize_event(raw_event)
         misp_event_id = normalized["misp_event_id"]
         existing = self.db.scalar(select(CtiEvent).where(CtiEvent.misp_event_id == misp_event_id))
         if existing is not None:
             workflow = existing.workflow
-            running = self.db.scalars(select(GraphRun).where(GraphRun.workflow_id == workflow.id).order_by(GraphRun.created_at.desc())).first() if workflow else None
-            running_status = str(getattr(running.status, "value", running.status)) if running else ""
-            status = "already_processing" if running and running_status == "running" else "duplicate"
+            running = (
+                self.db.scalars(
+                    select(GraphRun)
+                    .where(GraphRun.workflow_id == workflow.id)
+                    .order_by(GraphRun.created_at.desc())
+                ).first()
+                if workflow
+                else None
+            )
+            running_status = (
+                str(getattr(running.status, "value", running.status)) if running else ""
+            )
+            status = (
+                "already_processing" if running and running_status == "running" else "duplicate"
+            )
             self._record_consumption(
                 requested_misp_event_id or misp_event_id,
                 misp_event_id,
                 trigger_source,
                 strategy,
                 status,
-                "Workflow already running for this MISP event" if status == "already_processing" else "MISP event already exists in cti_events",
+                "Workflow already running for this MISP event"
+                if status == "already_processing"
+                else "MISP event already exists in cti_events",
                 cti_event_id=existing.id,
                 workflow_id=workflow.id if workflow else None,
                 requested_at=requested_at,
@@ -71,7 +99,7 @@ class MispIngestionService:
             title=normalized["title"],
             raw_event=raw_event,
             normalized_event=normalized,
-            received_at=datetime.utcnow(),
+            received_at=datetime.now(UTC),
         )
         self.db.add(cti_event)
         self.db.flush()
@@ -87,7 +115,7 @@ class MispIngestionService:
             "MISP event normalized and workflow created",
             cti_event_id=cti_event.id,
             workflow_id=workflow.id,
-            consumed_at=datetime.utcnow(),
+            consumed_at=datetime.now(UTC),
             requested_at=requested_at,
         )
         self.db.commit()
@@ -109,7 +137,7 @@ class MispIngestionService:
         requested_at: datetime | None = None,
         error_code: str | None = None,
     ) -> None:
-        completed_at = datetime.utcnow()
+        completed_at = datetime.now(UTC)
         key_material = f"{trigger_source}:{strategy}:{requested_misp_event_id}:{resolved_misp_event_id}:{status}:{completed_at.isoformat()}"
         self.db.add(
             CtiConsumptionRecord(
@@ -152,9 +180,14 @@ class MispApiService:
             ssl=settings.misp_verify_tls,
         )
 
-    def list_events(self, limit: int = 50, status_filter: str = "all", deduplicate: bool = True) -> list[dict[str, Any]]:
+    def list_events(
+        self, limit: int = 50, status_filter: str = "all", deduplicate: bool = True
+    ) -> list[dict[str, Any]]:
         client = self._client()
-        events = client.search(controller="events", metadata=True, limit=limit)
+        try:
+            events = client.search(controller="events", metadata=True, limit=limit)
+        except (PyMISPError, OSError, ValueError) as exc:
+            raise RuntimeError(f"MISP event search failed: {exc}") from exc
         result: list[dict[str, Any]] = []
         for raw in events if isinstance(events, list) else []:
             event = raw.get("Event", raw)
@@ -200,6 +233,7 @@ class MispApiService:
             )
         if deduplicate:
             result = collapse_duplicate_misp_events(result)
+
         def sort_key(item: dict[str, Any]) -> tuple[int, int]:
             try:
                 timestamp = int(item.get("timestamp") or 0)
@@ -215,16 +249,25 @@ class MispApiService:
         return result
 
     def fetch_event(self, misp_event_id: str) -> dict[str, Any]:
-        event = self._client().get_event(misp_event_id, pythonify=False)
+        try:
+            event = self._client().get_event(misp_event_id, pythonify=False)
+        except (PyMISPError, OSError, ValueError) as exc:
+            raise RuntimeError(f"MISP event fetch failed: {exc}") from exc
         payload = event.get("Event", event) if isinstance(event, dict) else None
-        if not event or not isinstance(payload, dict) or not (payload.get("id") or payload.get("uuid")):
+        if (
+            not event
+            or not isinstance(payload, dict)
+            or not (payload.get("id") or payload.get("uuid"))
+        ):
             raise ValueError("misp_event_not_found")
-        return event
+        return cast(dict[str, Any], event)
 
-    def ingest_event(self, misp_event_id: str, trigger_source: str = "manual", strategy: str = "manual") -> tuple[CtiEvent, Workflow, bool]:
+    def ingest_event(
+        self, misp_event_id: str, trigger_source: str = "manual", strategy: str = "manual"
+    ) -> tuple[CtiEvent, Workflow, bool]:
         try:
             raw = self.fetch_event(misp_event_id)
-        except Exception as exc:
+        except (RuntimeError, ValueError) as exc:
             MispIngestionService(self.db)._record_consumption(
                 misp_event_id,
                 None,
@@ -232,10 +275,17 @@ class MispApiService:
                 strategy,
                 "failed",
                 "MISP event was not found or could not be fetched",
-                error_code="MISP_EVENT_NOT_FOUND" if "not_found" in str(exc) else "MISP_FETCH_FAILED",
+                error_code="MISP_EVENT_NOT_FOUND"
+                if "not_found" in str(exc)
+                else "MISP_FETCH_FAILED",
             )
             raise
-        return MispIngestionService(self.db).ingest_raw_event(raw, trigger_source=trigger_source, strategy=strategy, requested_misp_event_id=misp_event_id)
+        return MispIngestionService(self.db).ingest_raw_event(
+            raw,
+            trigger_source=trigger_source,
+            strategy=strategy,
+            requested_misp_event_id=misp_event_id,
+        )
 
     def ingest_all_new(self, limit: int = 50) -> dict[str, Any]:
         created = 0
@@ -257,16 +307,26 @@ class MispApiService:
                     workflow_id=event.get("workflow_id"),
                 )
                 continue
-            _, _, was_created = self.ingest_event(str(event["misp_event_id"]), trigger_source="manual", strategy="batch")
+            _, _, was_created = self.ingest_event(
+                str(event["misp_event_id"]), trigger_source="manual", strategy="batch"
+            )
             if was_created:
                 created += 1
-                raw_cti = self.db.scalar(select(CtiEvent).where(CtiEvent.misp_event_id == str(event["misp_event_id"])))
+                raw_cti = self.db.scalar(
+                    select(CtiEvent).where(CtiEvent.misp_event_id == str(event["misp_event_id"]))
+                )
                 if raw_cti and raw_cti.workflow:
                     cti_event_ids.append(raw_cti.id)
                     workflow_ids.append(raw_cti.workflow.id)
             else:
                 existing += 1
-        return {"created": created, "existing": existing, "skipped": skipped, "cti_event_ids": cti_event_ids, "workflow_ids": workflow_ids}
+        return {
+            "created": created,
+            "existing": existing,
+            "skipped": skipped,
+            "cti_event_ids": cti_event_ids,
+            "workflow_ids": workflow_ids,
+        }
 
 
 def collapse_duplicate_misp_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -281,12 +341,18 @@ def collapse_duplicate_misp_events(events: list[dict[str, Any]]) -> list[dict[st
         if len(group) > 1:
             representative["duplicate_count"] = len(group)
             representative["duplicate_misp_event_ids"] = [item["misp_event_id"] for item in group]
-            representative["duplicate_cti_event_ids"] = [item["cti_event_id"] for item in group if item.get("cti_event_id")]
-            representative["title"] = canonical_display_title(str(representative.get("title") or "Untitled MISP event"))
+            representative["duplicate_cti_event_ids"] = [
+                item["cti_event_id"] for item in group if item.get("cti_event_id")
+            ]
+            representative["title"] = canonical_display_title(
+                str(representative.get("title") or "Untitled MISP event")
+            )
         else:
             representative["duplicate_count"] = 1
             representative["duplicate_misp_event_ids"] = [representative["misp_event_id"]]
-            representative["duplicate_cti_event_ids"] = [representative["cti_event_id"]] if representative.get("cti_event_id") else []
+            representative["duplicate_cti_event_ids"] = (
+                [representative["cti_event_id"]] if representative.get("cti_event_id") else []
+            )
         collapsed.append(representative)
     return collapsed
 
@@ -297,7 +363,13 @@ def duplicate_rank(event: dict[str, Any]) -> tuple[int, int]:
     except (TypeError, ValueError):
         timestamp = 0
     status = str(event.get("ingestion_status") or "")
-    status_rank = {"new": 0, "failed": 1, "processing": 2, "already_ingested": 3, "processed": 4}.get(status, 5)
+    status_rank = {
+        "new": 0,
+        "failed": 1,
+        "processing": 2,
+        "already_ingested": 3,
+        "processed": 4,
+    }.get(status, 5)
     return (status_rank, -timestamp)
 
 
@@ -308,8 +380,18 @@ def canonical_misp_title(title: str) -> str:
 
 
 def canonical_display_title(title: str) -> str:
-    cleaned = re.sub(r"\bcti-platform-[a-z0-9_-]*-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", "", title, flags=re.IGNORECASE)
-    cleaned = re.sub(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(
+        r"\bcti-platform-[a-z0-9_-]*-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b",
+        "",
+        title,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(
+        r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
     return re.sub(r"\s+", " ", cleaned).strip() or title
 
 
@@ -317,7 +399,7 @@ class MispPollingService:
     def __init__(self, db: Session):
         self.db = db
 
-    def poll(self) -> dict[str, int]:
+    def poll(self) -> dict[str, Any]:
         settings = get_settings()
         logger.info("misp_poll_started")
         schedule = MispIngestionScheduleService(self.db)
@@ -352,20 +434,22 @@ class MispPollingService:
             search_args["timestamp"] = int(state.last_event_timestamp.timestamp())
         try:
             events = client.search(**search_args)
-        except Exception:
+        except (PyMISPError, OSError, ValueError):
             self.db.add(
                 CtiConsumptionRecord(
                     trigger_source="scheduler",
                     strategy="scheduled",
                     status="failed",
                     reason="MISP scheduled poll failed",
-                    created_at=datetime.utcnow(),
+                    created_at=datetime.now(UTC),
                 )
             )
             self.db.commit()
             logger.exception("misp_poll_failed")
             raise
-        logger.info("misp_poll_events_returned count=%s", len(events) if isinstance(events, list) else 0)
+        logger.info(
+            "misp_poll_events_returned count=%s", len(events) if isinstance(events, list) else 0
+        )
         discovered = 0
         created = 0
         enqueued = 0
@@ -373,25 +457,35 @@ class MispPollingService:
         newest_id = state.last_event_id
         newest_time = state.last_event_timestamp
         for raw in events if isinstance(events, list) else []:
+            if not isinstance(raw, dict):
+                continue
             discovered += 1
-            event, workflow, was_created = ingestion.ingest_raw_event(raw, trigger_source="scheduler", strategy="scheduled")
+            event, workflow, was_created = ingestion.ingest_raw_event(
+                raw, trigger_source="scheduler", strategy="scheduled"
+            )
             if was_created:
                 created += 1
                 from app.workers.tasks import run_graph
 
                 run_graph.delay(workflow.id)
                 enqueued += 1
-                logger.info("misp_event_ingested event_id=%s workflow_id=%s", event.misp_event_id, workflow.id)
+                logger.info(
+                    "misp_event_ingested event_id=%s workflow_id=%s",
+                    event.misp_event_id,
+                    workflow.id,
+                )
             else:
                 logger.info("misp_event_duplicate_skipped event_id=%s", event.misp_event_id)
             newest_id = event.misp_event_id
             newest_time = event.received_at
         state.last_event_id = newest_id
         state.last_event_timestamp = newest_time
-        state.updated_at = datetime.utcnow()
+        state.updated_at = datetime.now(UTC)
         schedule.mark_completed()
         self.db.commit()
-        logger.info("misp_poll_finished discovered=%s created=%s enqueued=%s", discovered, created, enqueued)
+        logger.info(
+            "misp_poll_finished discovered=%s created=%s enqueued=%s", discovered, created, enqueued
+        )
         return {"discovered": discovered, "created": created, "enqueued": enqueued}
 
 
@@ -411,19 +505,23 @@ class MispIngestionScheduleService:
     def update(self, payload: dict[str, Any]) -> dict[str, Any]:
         mode = str(payload.get("mode") or "disabled")
         enabled = bool(payload.get("enabled", True)) and mode != "disabled"
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         schedule = {
             "configured": True,
             "enabled": enabled,
             "mode": mode if enabled else "disabled",
-            "interval_seconds": get_settings().misp_poll_interval_seconds if mode == "interval" else None,
+            "interval_seconds": get_settings().misp_poll_interval_seconds
+            if mode == "interval"
+            else None,
             "time_of_day": payload.get("time_of_day"),
             "weekday": payload.get("weekday"),
             "timezone_offset_minutes": int(payload.get("timezone_offset_minutes") or 0),
             "last_triggered_at": None,
             "updated_at": now.isoformat(),
         }
-        schedule["next_run_at"] = self._next_run_at(schedule, payload.get("run_at"), now).isoformat() if enabled else None
+        schedule["next_run_at"] = (
+            self._next_run_at(schedule, payload.get("run_at"), now).isoformat() if enabled else None
+        )
         item = self.db.get(Setting, SCHEDULE_SETTING_KEY)
         if item is None:
             item = Setting(key=SCHEDULE_SETTING_KEY, value=schedule)
@@ -444,14 +542,14 @@ class MispIngestionScheduleService:
         next_run = self._parse_datetime(schedule.get("next_run_at"))
         if next_run is None:
             return {"configured": True, "due": True, **schedule}
-        return {"configured": True, "due": datetime.utcnow() >= next_run, **schedule}
+        return {"configured": True, "due": datetime.now(UTC) >= next_run, **schedule}
 
     def mark_completed(self) -> dict[str, Any]:
         item = self.db.get(Setting, SCHEDULE_SETTING_KEY)
         if item is None:
             return self._default_schedule()
         schedule = dict(item.value)
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         schedule["last_triggered_at"] = now.isoformat()
         if schedule.get("mode") == "once":
             schedule["enabled"] = False
@@ -465,7 +563,7 @@ class MispIngestionScheduleService:
 
     def _default_schedule(self) -> dict[str, Any]:
         settings = get_settings()
-        next_interval = datetime.utcnow() + timedelta(seconds=settings.misp_poll_interval_seconds)
+        next_interval = datetime.now(UTC) + timedelta(seconds=settings.misp_poll_interval_seconds)
         return {
             "configured": False,
             "enabled": True,
@@ -501,7 +599,11 @@ class MispIngestionScheduleService:
     def _next_run_after_completion(self, schedule: dict[str, Any], now: datetime) -> datetime:
         mode = str(schedule.get("mode") or "disabled")
         if mode == "interval":
-            return now + timedelta(seconds=int(schedule.get("interval_seconds") or get_settings().misp_poll_interval_seconds))
+            return now + timedelta(
+                seconds=int(
+                    schedule.get("interval_seconds") or get_settings().misp_poll_interval_seconds
+                )
+            )
         if mode == "hourly":
             return now + timedelta(hours=1)
         if mode == "daily":
@@ -517,14 +619,14 @@ class MispIngestionScheduleService:
 
     def _parse_datetime(self, value: Any) -> datetime | None:
         if isinstance(value, datetime):
-            return value.replace(tzinfo=None)
+            return value if value.tzinfo else value.replace(tzinfo=UTC)
         if not value:
             return None
         text = str(value).replace("Z", "+00:00")
         parsed = datetime.fromisoformat(text)
         if parsed.tzinfo:
-            parsed = parsed.astimezone().replace(tzinfo=None)
-        return parsed
+            return parsed.astimezone(UTC)
+        return parsed.replace(tzinfo=UTC)
 
 
 class MispConnectivityService:
@@ -547,15 +649,23 @@ class MispConnectivityService:
             result["reason"] = "CTI_MISP_URL or CTI_MISP_API_KEY is missing"
             return result
 
+        if settings.misp_api_key is None:
+            result["status"] = "not_configured"
+            result["reason"] = "CTI_MISP_API_KEY is missing"
+            return result
         headers = {
             "Authorization": settings.misp_api_key.get_secret_value(),
             "Accept": "application/json",
         }
         try:
-            with httpx.Client(verify=settings.misp_verify_tls, timeout=10.0, follow_redirects=True) as client:
+            with httpx.Client(
+                verify=settings.misp_verify_tls, timeout=10.0, follow_redirects=True
+            ) as client:
                 heartbeat = client.get(f"{settings.misp_url.rstrip('/')}/users/heartbeat")
                 result["reachable"] = heartbeat.status_code < 500
-                auth_response = client.get(f"{settings.misp_url.rstrip('/')}/users/view/me", headers=headers)
+                auth_response = client.get(
+                    f"{settings.misp_url.rstrip('/')}/users/view/me", headers=headers
+                )
         except httpx.RequestError as exc:
             result["status"] = "unreachable"
             result["reason"] = str(exc)
@@ -577,9 +687,13 @@ class MispConnectivityService:
         state = self.db.get(MispPollState, 1)
         result["authenticated"] = True
         result["polling_successfully"] = bool(state and state.updated_at)
-        result["last_poll_at"] = state.updated_at.isoformat() if state and state.updated_at else None
+        result["last_poll_at"] = (
+            state.updated_at.isoformat() if state and state.updated_at else None
+        )
         result["last_event_id"] = state.last_event_id if state else None
         result["status"] = "healthy" if result["polling_successfully"] else "authenticated"
         if result["status"] == "authenticated":
-            result["reason"] = "MISP API authentication works; no scheduler poll state has been persisted yet"
+            result["reason"] = (
+                "MISP API authentication works; no scheduler poll state has been persisted yet"
+            )
         return result

@@ -1,0 +1,148 @@
+\chapter{Réalisation, validation et bilan}
+
+\section{Introduction}
+
+Ce chapitre décrit la réalisation des principaux composants, l'intégration de la chaîne DevSecOps et les méthodes de test. Il présente ensuite les difficultés traitées, les résultats constatés et les limites de la version actuelle.
+
+\section{Mise en œuvre du backend}
+
+\subsection{API et sécurité applicative}
+
+L'application FastAPI expose des routes versionnées pour l'authentification, les événements CTI, MISP, les exécutions LangGraph, les sessions d'intelligence artificielle, la revue et le catalogue. Les schémas Pydantic contrôlent les données en entrée et en sortie. SQLAlchemy assure la correspondance avec PostgreSQL et Alembic versionne les migrations.
+
+Les domaines API reflètent les responsabilités fonctionnelles : l'authentification gère la connexion et le renouvellement, CTI et MISP couvrent les sources, le graphe restitue les exécutions et leurs chronologies, le domaine IA expose les sessions et révisions, tandis que la revue et le catalogue gèrent le passage d'un candidat vers une détection approuvée. Ce découpage évite qu'une route HTTP porte directement toute la logique métier ; elle délègue les opérations aux services spécialisés.
+
+L'authentification locale utilise un couple de jetons JWT d'accès et de renouvellement. Les dépendances FastAPI vérifient l'utilisateur actif et son rôle avant d'autoriser une action. Les routes de consultation et les actions sensibles, notamment l'approbation, sont ainsi séparées. Cette sécurité reste adaptée à une démonstration locale ; elle devra évoluer vers une fédération d'identité et une authentification multifacteur dans un environnement réel.
+
+Les migrations Alembic rendent l'évolution de la base reproductible. Elles ont accompagné l'enrichissement progressif du projet : socle applicatif, métadonnées de politique, audit ATT\&CK, contraintes d'idempotence, sessions de raisonnement, révisions et suivi détaillé de la consommation. Cette progression illustre une démarche d'ingénierie où le schéma évolue avec les exigences de traçabilité, plutôt qu'une simple accumulation de tables sans historique de migration.
+
+\subsection{Ingestion MISP et idempotence}
+
+La plateforme peut lister les événements MISP, afficher un événement, ingérer une sélection ou consommer tous les nouveaux éléments. Le service de normalisation transforme la structure reçue en événement CTI interne tout en conservant la donnée brute pour l'audit. Un index unique sur l'identifiant MISP empêche la duplication de l'événement interne.
+
+L'idempotence est complétée par les enregistrements de consommation. Une nouvelle tentative peut être marquée \texttt{duplicate} ou \texttt{already\_processing} au lieu de provoquer une insertion incohérente. Les autres états comprennent \texttt{pending}, \texttt{consumed}, \texttt{skipped}, \texttt{failed} et \texttt{invalid\_source\_event}. Le diagnostic distingue également l'absence de clé API, l'inaccessibilité du serveur, l'échec d'authentification et l'état sain.
+
+Après création du workflow, l'exécution est confiée à Celery et la requête d'ingestion peut retourner sans attendre la fin de l'analyse. Le polling planifié utilise la même chaîne de normalisation et d'idempotence que l'ingestion manuelle. Cette convergence évite deux comportements différents selon l'origine du déclenchement et simplifie l'audit des consommations.
+
+\subsection{Services déterministes}
+
+L'analyse ATT\&CK confirme qu'une technique proposée existe dans le référentiel local. Le service de couverture compare l'empreinte du comportement et sa similarité aux détections du catalogue. Le service de visibilité vérifie les sources et champs requis. La politique synthétise ces résultats pour décider de poursuivre ou d'arrêter.
+
+Pour les candidats, la validation combine le schéma, les exigences Sigma, la compilation pySigma vers Splunk, les doublons exacts et proches ainsi que les watchers. Ce découpage facilite les tests unitaires et évite d'enfouir des règles métier dans les invites du modèle.
+
+La validation ne se limite donc pas à vérifier qu'un document YAML peut être sérialisé. Elle contrôle la présence des champs Sigma obligatoires, la cohérence de la condition avec les sélections, la compatibilité avec pySigma, la compilation vers SPL, les exigences de télémétrie et la proximité avec le catalogue. Un échec bloquant conduit à un état terminal ; un défaut local et corrigeable fournit au moteur de réparation des erreurs structurées.
+
+\section{Mise en œuvre du moteur d'intelligence artificielle}
+
+L'abstraction de fournisseur définit des contrats structurés pour l'extraction des comportements, la génération et la réparation. Le mode prédéfini renvoie des sorties reproductibles utilisées en démonstration et en intégration continue. Le mode DeepSeek construit les requêtes HTTP, applique les reprises prévues et assainit les messages d'erreur afin de ne pas exposer de données sensibles.
+
+Chaque interaction conserve la version de l'invite, les objets de requête et de réponse, le fournisseur, le modèle, la latence, les informations de jetons et les empreintes. Ces données permettent de retrouver l'origine d'un candidat. L'utilisation exclusive de JSON structuré rend possible la validation Pydantic avant toute utilisation métier.
+
+La réparation reçoit le candidat précédent, les erreurs, l'historique de la session et les stratégies déjà tentées. Elle doit corriger les éléments techniques sans recopier directement les commentaires libres d'un analyste dans les sélections Sigma. Après chaque correction, le candidat repasse par l'ensemble des contrôles ; aucune validation antérieure n'est supposée rester valable.
+
+\section{Mise en œuvre du frontend}
+
+Le frontend organise l'activité autour de vues opérationnelles. La page des menaces affiche la boîte MISP, les événements ingérés et les commandes de planification. Les vues IA présentent les sessions, révisions, watchers, scores et raisons d'arrêt. La vue du graphe restitue la chronologie des nœuds, tandis que la file de revue réunit le candidat, sa validation et les actions analyste.
+
+Le catalogue ne contient que les règles approuvées ou importées. La matrice ATT\&CK donne une vision de la couverture, l'inventaire de télémétrie permet d'activer les sources disponibles et la page de santé regroupe l'état des composants. Cette organisation rend visibles non seulement les résultats, mais aussi les éléments nécessaires à leur interprétation.
+
+\figureplaceholder{Interface de la file de revue analyste}{fig:file-revue}
+
+\section{Chaîne DevSecOps et CI/CD}
+
+La démarche DevSecOps intègre les contrôles de qualité et de sécurité au cycle de développement. Cinq workflows GitHub Actions structurent cette automatisation.
+
+\begin{table}[htbp]
+\centering
+\caption{Workflows d'intégration et de déploiement continus}
+\label{tab:workflows-ci}
+\begin{tabular}{|p{0.28\textwidth}|p{0.62\textwidth}|}
+\hline
+\rowcolor[gray]{0.8}\textbf{Workflow} & \textbf{Contrôles principaux} \\
+\hline
+Qualité des PR & Compilation Python, Ruff, formatage, mypy, tests backend, lint frontend, TypeScript et build Next.js \\
+\hline
+Validation Docker & Validation Compose, construction, démarrage PostgreSQL/Redis, vérification Alembic, migrations, santé et collecte des journaux \\
+\hline
+Intégration/E2E/DAST & Pile complète avec MISP, préparation de la clé API, scénario MISP réel, tests d'intégration, OWASP ZAP et Playwright \\
+\hline
+Sécurité & pip-audit, Bandit, detect-secrets, Semgrep, Checkov, CodeQL, Trivy, et intégrations optionnelles Snyk/SonarQube \\
+\hline
+Déploiement & Construction et publication des images backend/frontend dans GHCR, puis appel de webhooks selon l'environnement \\
+\hline
+\end{tabular}
+\end{table}
+
+\figureplaceholder{Pipeline DevSecOps de la plateforme}{fig:pipeline-devsecops}
+
+Les contrôles couvrent plusieurs niveaux. pip-audit vérifie les dépendances Python ; Bandit, Semgrep et CodeQL recherchent des faiblesses dans le code ; detect-secrets détecte les secrets ; Checkov analyse les fichiers d'infrastructure ; Trivy inspecte les images ; OWASP ZAP exécute un contrôle dynamique de base contre la pile démarrée. Les outils Snyk et SonarQube restent conditionnés à la présence de secrets externes.
+
+Le workflow de déploiement publie des images dans GitHub Container Registry et déclenche des webhooks. Cette automatisation ne doit pas être confondue avec l'action métier d'approbation d'une règle : dans les deux cas, des contrôles préalables sont nécessaires, mais l'un concerne l'application et l'autre le cycle de vie d'une détection.
+
+\section{Stratégie de test}
+
+\subsection{Tests unitaires du backend}
+
+Les tests unitaires couvrent les contrats du mode IA prédéfini, la construction des requêtes DeepSeek, les reprises et l'assainissement des erreurs. Ils valident également les services ATT\&CK, couverture, télémétrie, politique, Sigma et doublons, ainsi que les watchers, les moteurs de scores et les décisions de satisfaction.
+
+Des tests spécifiques vérifient la compilation pySigma, la connectivité et la planification MISP, l'enregistrement des tâches Celery et l'existence d'un graphe LangGraph compilé. Un artifact JUnit conservé dans le dépôt fait état de 55 tests backend lors d'une exécution antérieure.
+
+\subsection{Tests d'intégration}
+
+Les tests d'intégration démarrent la pile et interrogent les API réelles. Ils couvrent la santé, le tableau de bord, MISP, la normalisation CTI, la création d'une exécution LangGraph, les métadonnées du workflow IA, les sessions, watchers, propositions et validations. Le scénario poursuit le traitement jusqu'à la revue puis vérifie la publication dans le catalogue après approbation. Les accès sans authentification sont également refusés. Les éléments du dépôt indiquent quatre tests d'intégration exécutés dans le scénario de référence.
+
+\subsection{Tests de bout en bout}
+
+Playwright reproduit le parcours d'un utilisateur depuis la connexion jusqu'aux principales pages : tableau de bord, menaces, intelligence artificielle, workflow, revue, catalogue, ATT\&CK, santé et contrôles d'ingestion. La redirection d'un utilisateur non authentifié est vérifiée. La suite présente dans le dépôt définit trois scénarios E2E, destinés principalement à une validation de fumée de l'interface.
+
+\section{Difficultés rencontrées et solutions}
+
+L'intégration MISP a demandé une gestion précise de l'authentification. La préparation de la clé API en CI et la distinction entre serveur non configuré, inaccessible ou refusant l'authentification ont permis de produire des diagnostics exploitables. La duplication d'événements dans l'affichage et lors de l'ingestion a été traitée par canonicalisation des titres, contrainte d'unicité et journal de consommation idempotent.
+
+Le démarrage conteneurisé a révélé des contraintes sur les chemins Alembic et le chargement des modules Python. L'exécution des migrations avec \texttt{PYTHONPATH=/app} et la vérification explicite des chemins dans le workflow Docker ont stabilisé cette étape.
+
+Au niveau de l'interface, des noms de champs devenus obsolètes dans les contrats d'intégration et des sélecteurs Playwright ambigus en mode strict ont été corrigés pour aligner les tests sur les composants réellement rendus.
+
+La difficulté principale du raisonnement concernait la continuité entre les révisions. La persistance d'une mémoire structurée et le lien parent-enfant entre tentatives ont permis de reprendre une session sans perdre les erreurs précédentes. Les erreurs pySigma, notamment l'absence de condition, sont renvoyées à la réparation. Des consignes supplémentaires empêchent la correction de recopier mécaniquement un commentaire d'analyste dans la logique Sigma.
+
+\section{Résultats obtenus}
+
+La plateforme réalisée couvre l'ensemble du chemin prévu : ingestion d'un événement MISP réel, normalisation, orchestration LangGraph, traitement Celery, extraction de comportements, vérification ATT\&CK, analyse de couverture et de télémétrie, décision de politique, génération Sigma, compilation Splunk, contrôles, correction bornée, revue humaine et publication locale.
+
+Sur le plan de la traçabilité, les exécutions du graphe, interactions IA, sessions, révisions, watchers, scores, décisions et actions analyste sont persistés. L'utilisateur peut donc relier une règle publiée à l'événement source, au comportement, aux contrôles et à l'approbation correspondante.
+
+Sur le plan de la sûreté, la solution respecte la règle centrale du projet. Même lorsqu'un candidat atteint les seuils de confiance et de fiabilité, il demeure une proposition. La création d'un artifact et d'une entrée de catalogue nécessite une action d'approbation. Une défaillance déterministe ou de sécurité ne peut pas être compensée par le score annoncé par le modèle.
+
+L'intérêt principal du résultat ne réside donc pas uniquement dans la capacité à produire une règle Sigma. Il réside dans l'encadrement de cette production par des preuves, des états persistés et des décisions séparées. Une génération directe par invite unique aurait été plus simple, mais elle n'aurait pas permis d'expliquer pourquoi une règle est recevable, pourquoi elle doit être réparée ou pourquoi le traitement doit s'arrêter.
+
+Les tests et workflows présents dans le dépôt apportent une preuve automatisée de plusieurs propriétés : qualité du code, migrations, disponibilité des services, contrats API, cycle de revue, sécurité statique, analyse d'images et parcours utilisateur. Ces résultats restent ceux d'une plateforme locale de démonstration et non d'une qualification pour une production à haute disponibilité.
+
+\section{Limites}
+
+La version actuelle comporte plusieurs limites :
+\begin{itemize}[leftmargin=1.2cm]
+    \item l'authentification est locale et ne fournit ni SSO ni MFA ;
+    \item CORS autorise toutes les origines, ce qui convient uniquement à l'environnement local ;
+    \item Docker Compose ne fournit pas la haute disponibilité ou l'orchestration d'une plateforme de production ;
+    \item le déploiement produit un paquet et une entrée de catalogue, sans pousser la règle vers un SIEM réel ;
+    \item le mode IA prédéfini est reproductible mais ne représente pas les variations d'un modèle connecté ;
+    \item le mode DeepSeek dépend d'une clé et d'un accès réseau externes ;
+    \item Snyk et SonarQube nécessitent une configuration externe ;
+    \item OWASP ZAP exécute une analyse de base et non un test d'intrusion complet ;
+    \item l'état des workers est approximé en partie par l'accès Redis ;
+    \item les images MISP utilisent par défaut l'étiquette \texttt{latest} ;
+    \item l'inventaire de télémétrie est configuré localement au lieu d'être découvert dans un SIEM ;
+    \item la couverture E2E vérifie les parcours principaux sans constituer une régression exhaustive.
+\end{itemize}
+
+\section{Perspectives d'amélioration}
+
+Les évolutions prioritaires concernent l'industrialisation et l'intégration. L'ajout d'un SSO, d'une authentification multifacteur, de rôles plus fins, d'une politique CORS restrictive et d'un gestionnaire de secrets renforcerait la sécurité. Le verrouillage des versions MISP améliorerait la reproductibilité.
+
+Une observabilité plus complète pourrait réunir des journaux structurés, des identifiants de corrélation, des métriques et des tableaux de bord pour Celery, le planificateur, MISP et LangGraph. Les états des workers et du scheduler seraient alors vérifiés directement plutôt qu'estimés par Redis.
+
+Sur le plan fonctionnel, une connexion à de véritables cibles SIEM permettrait de valider puis de déployer les règles dans un environnement contrôlé. La découverte automatique de la télémétrie, l'enrichissement du référentiel ATT\&CK, l'extension des tests de contrats et des scénarios Playwright, ainsi qu'une meilleure visibilité sur les reprises IA/MISP compléteraient la solution.
+
+\section{Conclusion}
+
+La réalisation démontre qu'une chaîne CTI vers détection peut être automatisée sans supprimer la responsabilité de l'analyste. Les services déterministes, la mémoire de session, les révisions et les pipelines de test encadrent l'usage de l'intelligence artificielle. Les limites identifiées définissent clairement la différence entre une plateforme locale complète sur le plan fonctionnel et une solution prête pour une exploitation industrielle.

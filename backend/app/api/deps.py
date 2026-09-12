@@ -30,12 +30,18 @@ def _user_from_token(token: str, db: Session, token_type: str) -> User:
     try:
         payload = decode_token(token)
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token") from exc
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"
+        ) from exc
     if payload.get("type") != token_type:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"{token_type.title()} token required")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail=f"{token_type.title()} token required"
+        )
     user = db.get(User, payload.get("sub"))
     if user is None or not user.active:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Inactive or missing user")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Inactive or missing user"
+        )
     return user
 
 

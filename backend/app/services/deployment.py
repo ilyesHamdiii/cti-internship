@@ -8,9 +8,9 @@ from app.models.enums import DetectionStatus, DetectionType
 from app.models.models import (
     AttackMapping,
     Behavior,
+    DeploymentArtifact,
     DetectionAttackMapping,
     DetectionCatalog,
-    DeploymentArtifact,
     ProposalRevision,
     ValidationResult,
 )
@@ -23,7 +23,10 @@ class DeploymentService:
 
     def create_artifact(self, revision: ProposalRevision) -> DeploymentArtifact:
         self.artifact_root.mkdir(parents=True, exist_ok=True)
-        path = self.artifact_root / f"proposal-{revision.proposal_id}-rev-{revision.revision_number}.yml"
+        path = (
+            self.artifact_root
+            / f"proposal-{revision.proposal_id}-rev-{revision.revision_number}.yml"
+        )
         path.write_text(revision.sigma_yaml, encoding="utf-8")
         checksum = hashlib.sha256(revision.sigma_yaml.encode("utf-8")).hexdigest()
         existing = self.db.scalar(
@@ -48,7 +51,9 @@ class DeploymentService:
         self.db.refresh(artifact)
         return artifact
 
-    def publish_detection(self, revision: ProposalRevision, artifact: DeploymentArtifact) -> DetectionCatalog:
+    def publish_detection(
+        self, revision: ProposalRevision, artifact: DeploymentArtifact
+    ) -> DetectionCatalog:
         behavior = self.db.get(Behavior, revision.behavior_id)
         validation = self.db.scalar(
             select(ValidationResult).where(ValidationResult.proposal_revision_id == revision.id)
@@ -106,7 +111,9 @@ class DeploymentService:
             detection.status = DetectionStatus.active
 
         mappings = self.db.scalars(
-            select(AttackMapping).where(AttackMapping.behavior_id == revision.behavior_id, AttackMapping.verified.is_(True))
+            select(AttackMapping).where(
+                AttackMapping.behavior_id == revision.behavior_id, AttackMapping.verified.is_(True)
+            )
         ).all()
         for mapping in mappings:
             existing_mapping = self.db.scalar(

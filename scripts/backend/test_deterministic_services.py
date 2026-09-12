@@ -7,8 +7,16 @@ from app.services.sigma import SigmaValidationService
 
 
 def test_fingerprint_is_deterministic_for_reordered_payloads() -> None:
-    left = {"summary": " PowerShell  Encoded ", "attack": ["T1059.001"], "telemetry": [{"fields": ["b", "a"]}]}
-    right = {"telemetry": [{"fields": ["a", "b"]}], "attack": ["T1059.001"], "summary": "powershell encoded"}
+    left = {
+        "summary": " PowerShell  Encoded ",
+        "attack": ["T1059.001"],
+        "telemetry": [{"fields": ["b", "a"]}],
+    }
+    right = {
+        "telemetry": [{"fields": ["a", "b"]}],
+        "attack": ["T1059.001"],
+        "summary": "powershell encoded",
+    }
     assert fingerprint_behavior(left) == fingerprint_behavior(right)
 
 
@@ -82,7 +90,14 @@ def test_sigma_validation_accepts_mixed_case_attack_tag() -> None:
 
 
 class Technique:
-    def __init__(self, technique_id="T1059.001", revoked=False, deprecated=False, tactics=None, platforms=None):
+    def __init__(
+        self,
+        technique_id="T1059.001",
+        revoked=False,
+        deprecated=False,
+        tactics=None,
+        platforms=None,
+    ):
         self.technique_id = technique_id
         self.name = "PowerShell"
         self.revoked = revoked
@@ -107,7 +122,9 @@ def mapping(**overrides) -> ProposedAttackMapping:
         "technique_name": "PowerShell",
         "tactic_id": "execution",
         "tactic_name": "Execution",
-        "evidence_refs": [{"ref": "attribute:1", "excerpt": "powershell", "source_field": "attributes"}],
+        "evidence_refs": [
+            {"ref": "attribute:1", "excerpt": "powershell", "source_field": "attributes"}
+        ],
         "confidence": 0.9,
     }
     payload.update(overrides)
@@ -122,7 +139,9 @@ def behavior(**overrides) -> BehaviorCandidate:
         "actor_action": "execute",
         "target": "PowerShell",
         "execution_mechanism": "powershell.exe -EncodedCommand",
-        "evidence_refs": [{"ref": "attribute:1", "excerpt": "powershell", "source_field": "attributes"}],
+        "evidence_refs": [
+            {"ref": "attribute:1", "excerpt": "powershell", "source_field": "attributes"}
+        ],
         "observables": [{"type": "process", "value": "powershell.exe -EncodedCommand"}],
         "proposed_attack_mappings": [mapping().model_dump()],
         "required_telemetry": [{"category": "process", "fields": ["Image", "CommandLine"]}],
@@ -148,14 +167,18 @@ def test_attack_verification_invalid_technique() -> None:
 
 
 def test_attack_verification_revoked_technique() -> None:
-    result = AttackVerificationService(AttackDb(Technique(revoked=True))).verify(mapping(), behavior())
+    result = AttackVerificationService(AttackDb(Technique(revoked=True))).verify(
+        mapping(), behavior()
+    )
 
     assert result["verified"] is False
     assert result["status"] == "revoked"
 
 
 def test_attack_verification_wrong_tactic() -> None:
-    result = AttackVerificationService(AttackDb(Technique(tactics=["persistence"]))).verify(mapping(), behavior())
+    result = AttackVerificationService(AttackDb(Technique(tactics=["persistence"]))).verify(
+        mapping(), behavior()
+    )
 
     assert result["verified"] is False
     assert result["status"] == "tactic_mismatch"
@@ -169,21 +192,30 @@ def test_attack_verification_incompatible_platform() -> None:
         required_telemetry=[{"category": "cloud_audit", "fields": ["event_name"]}],
     )
 
-    result = AttackVerificationService(AttackDb(Technique(platforms=["Windows"]))).verify(mapping(technique_id="T1059.001"), cloud_behavior)
+    result = AttackVerificationService(AttackDb(Technique(platforms=["Windows"]))).verify(
+        mapping(technique_id="T1059.001"), cloud_behavior
+    )
 
     assert result["verified"] is False
     assert result["status"] == "platform_mismatch"
 
 
 def test_attack_verification_unsupported_evidence() -> None:
-    result = AttackVerificationService(AttackDb(Technique())).verify(mapping(evidence_refs=[{"ref": "attribute:99", "excerpt": "x", "source_field": "attributes"}]), behavior())
+    result = AttackVerificationService(AttackDb(Technique())).verify(
+        mapping(
+            evidence_refs=[{"ref": "attribute:99", "excerpt": "x", "source_field": "attributes"}]
+        ),
+        behavior(),
+    )
 
     assert result["verified"] is False
     assert result["status"] == "unsupported_evidence"
 
 
 def test_attack_verification_confidence_below_threshold() -> None:
-    result = AttackVerificationService(AttackDb(Technique())).verify(mapping(confidence=0.2), behavior())
+    result = AttackVerificationService(AttackDb(Technique())).verify(
+        mapping(confidence=0.2), behavior()
+    )
 
     assert result["verified"] is False
     assert result["status"] == "confidence_below_threshold"
